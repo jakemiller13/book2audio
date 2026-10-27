@@ -54,7 +54,7 @@ export async function bench(choice, post, { skipPronunciation = false } = {}) {
   const cores = nav.hardwareConcurrency || 1;
   const threads = device === "wasm" && self.crossOriginIsolated ? Math.max(1, Math.min(cores, 8)) : 1;
   if (wasm) wasm.numThreads = threads;
-  post({ type: "info", threads, cores, isolated: !!self.crossOriginIsolated });
+  post({ type: "info", threads, cores, isolated: !!self.crossOriginIsolated, version: 5 });
 
   const files = {};
   const tts = await step(post, "Load model", () => KokoroTTS.from_pretrained(MODEL, {

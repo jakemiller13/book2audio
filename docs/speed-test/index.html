@@ -48,6 +48,7 @@
 <body>
 <main>
   <h1>Voice speed test</h1>
+  <p class="muted">Test version 5</p>
   <p class="muted">Checks whether this device can generate the book2audio narrator voice fast enough to make audiobooks without a computer. It reads five short sentences written for this test. Nothing is uploaded; everything runs on this device.</p>
 
   <div class="card">
@@ -189,7 +190,7 @@ function fail(text, detail) {
 async function runOnPage(note) {
   show("Ran in", note || "the page itself");
   try {
-    const { bench } = await import("./bench.js");
+    const { bench } = await import("./bench.js?v=5");
     await bench(choice, handle, { skipPronunciation: skip });
   } catch (e) {
     handle({ type: "error", message: String((e && e.stack) || e) });
@@ -210,7 +211,7 @@ function run() {
   if (where === "page") return runOnPage();
 
   let worker;
-  try { worker = new Worker("worker.js", { type: "module" }); }
+  try { worker = new Worker("worker.js?v=5", { type: "module" }); }
   catch { return runOnPage("the page (background unavailable)"); }
   let ready = false;
   const fallback = setTimeout(() => { if (!ready) { worker.terminate(); runOnPage("the page (background didn't start)"); } }, 30000);

@@ -1,5 +1,5 @@
 // Runs the speed test off the page's main thread so the page stays responsive.
-import { bench } from "./bench.js";
+import { bench } from "./bench.js?v=5";
 
 self.onmessage = async (e) => {
   try {
