@@ -79,3 +79,7 @@ Rough timing on an M3 Pro: OCR takes about 0.75× the video's length, and the vo
 3. Multiple views of the same page are matched by their text, and the best one is kept. Page numbers are decided by vote, with evidence from the facing page. A read page number is ignored unless another page has a number close to it, which filters misreads like "867" while still allowing recordings of separate parts of the book.
 4. Optional: `claude -p` proofreads the transcript in ~3,000-word chunks. A chunk whose length changes by more than 10% is rejected and the OCR text is kept.
 5. Kokoro (or `say`) speaks each chapter, and ffmpeg packages everything as an AAC `.m4b` with a chapter track.
+
+## License
+
+MIT. See [LICENSE](LICENSE). Only use this on books you own, for your own listening; the audiobooks it makes are copies of the book and shouldn't be shared.
