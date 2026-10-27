@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice Speed Test</title>
+<style>
+  :root {
+    --bg: #f7f6f3; --card: #ffffff; --text: #1d1d1f; --muted: #6e6e73;
+    --line: #e3e1dc; --accent: #2f6f5e; --accent-text: #ffffff; --good: #1f7a3a; --bad: #b3261e; --warn: #9a6400;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141414; --card: #1f1f1f; --text: #f2f2f2; --muted: #a1a1a6;
+      --line: #333; --accent: #5fb39b; --accent-text: #0b1f19; --good: #6fd08c; --bad: #ff8a80; --warn: #f2c14e;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  p { margin: 0 0 12px; }
+  .muted { color: var(--muted); font-size: .9rem; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin: 16px 0; }
+  button { font: inherit; font-weight: 600; width: 100%; padding: 14px; margin: 6px 0; border-radius: 10px;
+           border: 1px solid var(--accent); background: var(--accent); color: var(--accent-text); }
+  button.secondary { background: transparent; color: var(--accent); }
+  button:disabled { opacity: .45; }
+  .status { min-height: 1.5em; font-weight: 600; }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin: 8px 0; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .verdict { font-size: 1.15rem; font-weight: 700; margin-top: 12px; }
+  .good { color: var(--good); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+  audio { width: 100%; margin-top: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Voice speed test</h1>
+  <p class="muted">Checks whether this phone can generate the book2audio narrator voice fast enough to make audiobooks without a computer. It reads one short paragraph written for this test. Nothing is uploaded; everything runs on this device.</p>
+
+  <div class="card">
+    <p><strong>1. Standard test</strong> (works on any phone). Downloads a 92 MB voice model once.</p>
+    <button id="run-wasm">Run standard test</button>
+    <p><strong>2. Graphics-chip test</strong> (may be much faster). Downloads a 325 MB model once. Use Wi-Fi.</p>
+    <button id="run-webgpu" class="secondary">Run graphics-chip test</button>
+  </div>
+
+  <div class="card">
+    <div class="status" id="status">Not started.</div>
+    <div class="bar"><div id="bar"></div></div>
+    <dl id="results"></dl>
+    <div class="verdict" id="verdict"></div>
+    <audio id="player" controls hidden></audio>
+    <button id="copy" class="secondary" hidden>Copy results</button>
+  </div>
+
+  <p class="muted">Keep this page open and the screen on while a test runs. A second run is faster because the model stays cached in the browser.</p>
+</main>
+
+<script type="module">
+import { KokoroTTS } from "https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/dist/kokoro.web.js";
+
+const MODEL = "onnx-community/Kokoro-82M-v1.0-ONNX";
+const VOICE = "am_michael";
+const SAMPLE = [
+  "The lighthouse keeper climbed the spiral stairs a little after dusk, counting each step out of habit.",
+  "At the top, he wiped the salt from the great lens and checked the oil, then sat by the window with a cup of tea gone cold.",
+  "Far below, the fishing boats were turning for home, their lanterns bobbing like fireflies on the dark water.",
+  "He liked this hour best: the work done, the light turning, and the whole coast trusting him to stay awake."
+].join(" ");
+
+const $ = (id) => document.getElementById(id);
+const rows = [];
+const show = (label, value) => {
+  rows.push([label, value]);
+  $("results").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+};
+const status = (t) => ($("status").textContent = t);
+const bar = (f) => ($("bar").style.width = `${Math.round(f * 100)}%`);
+const secs = (ms) => `${(ms / 1000).toFixed(1)} s`;
+
+function wavBlob(chunks, rate) {
+  const n = chunks.reduce((a, c) => a + c.length, 0);
+  const buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); w(8, "WAVE"); w(12, "fmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, "data"); v.setUint32(40, n * 2, true);
+  let o = 44;
+  for (const c of chunks) for (const s of c) { v.setInt16(o, Math.max(-1, Math.min(1, s)) * 0x7fff, true); o += 2; }
+  return new Blob([buf], { type: "audio/wav" });
+}
+
+async function run(device) {
+  for (const b of document.querySelectorAll("button")) b.disabled = true;
+  rows.length = 0; $("results").innerHTML = ""; $("verdict").textContent = ""; $("player").hidden = true; $("copy").hidden = true;
+  show("Test", device === "webgpu" ? "Graphics chip (WebGPU, full model)" : "Standard (WebAssembly, 92 MB model)");
+  show("Device", navigator.userAgent.replace(/^Mozilla\/5\.0 /, ""));
+  if (device === "webgpu" && !navigator.gpu) {
+    status("This browser doesn't offer WebGPU, so the graphics-chip test can't run here.");
+    for (const b of document.querySelectorAll("button")) b.disabled = false;
+    return;
+  }
+  try {
+    status("Loading voice model...");
+    const files = {};
+    const t0 = performance.now();
+    const tts = await KokoroTTS.from_pretrained(MODEL, {
+      dtype: device === "webgpu" ? "fp32" : "q8",
+      device,
+      progress_callback: (p) => {
+        if (p.status === "progress" && p.total) {
+          files[p.file] = [p.loaded, p.total];
+          const [l, t] = Object.values(files).reduce(([a, b], [c, d]) => [a + c, b + d], [0, 0]);
+          bar(l / t);
+          status(`Downloading voice model... ${Math.round(l / 1e6)} of ${Math.round(t / 1e6)} MB`);
+        }
+      },
+    });
+    const loadMs = performance.now() - t0;
+    show("Model load", secs(loadMs));
+
+    status("Generating speech...");
+    bar(0);
+    const chunks = [];
+    let rate = 24000, audioSec = 0, firstMs = null;
+    const t1 = performance.now();
+    const sentences = SAMPLE.match(/[^.!?]+[.!?]+/g);
+    for (const [i, s] of sentences.entries()) {
+      const out = await tts.generate(s.trim(), { voice: VOICE });
+      if (firstMs === null) firstMs = performance.now() - t1;
+      rate = out.sampling_rate;
+      chunks.push(out.audio);
+      audioSec += out.audio.length / rate;
+      bar((i + 1) / sentences.length);
+    }
+    const genSec = (performance.now() - t1) / 1000;
+    const speed = audioSec / genSec;
+    show("Audio made", `${audioSec.toFixed(1)} s`);
+    show("Time taken", `${genSec.toFixed(1)} s`);
+    show("First sentence", secs(firstMs));
+    show("Speed", `${speed.toFixed(2)}× real time`);
+    show("25-min chapter", `about ${Math.round(25 / speed)} min to make`);
+
+    const v = $("verdict");
+    if (speed >= 2) { v.className = "verdict good"; v.textContent = "Fast enough: an on-phone version looks practical."; }
+    else if (speed >= 0.7) { v.className = "verdict warn"; v.textContent = "Usable but slow: a chapter takes about as long as listening to it."; }
+    else { v.className = "verdict bad"; v.textContent = "Too slow for whole chapters on this phone with this test."; }
+
+    $("player").src = URL.createObjectURL(wavBlob(chunks, rate));
+    $("player").hidden = false;
+    $("copy").hidden = false;
+    status("Done. Tap play to hear the result.");
+  } catch (e) {
+    status(`Test failed: ${e.message || e}`);
+    show("Error", String(e && e.stack || e).slice(0, 400));
+    $("copy").hidden = false;
+  }
+  for (const b of document.querySelectorAll("button")) b.disabled = false;
+}
+
+$("run-wasm").onclick = () => run("wasm");
+$("run-webgpu").onclick = () => run("webgpu");
+$("copy").onclick = async () => {
+  const text = rows.map(([k, v]) => `${k}: ${v}`).join("\n") + "\n" + $("verdict").textContent;
+  try { await navigator.clipboard.writeText(text); $("copy").textContent = "Copied"; }
+  catch { $("copy").textContent = "Couldn't copy; take a screenshot instead"; }
+};
+</script>
+</body>
+</html>
