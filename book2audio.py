@@ -838,7 +838,7 @@ def render_section_say(voice, speed, paragraphs, aiff_path, is_chapter, progress
     return float(re.search(r"estimated duration: ([\d.]+)", info).group(1))
 
 
-def synthesize(blocks, out_path, engine_name, voice, speed, title):
+def synthesize(blocks, out_path, engine_name, voice, speed, tags):
     import shutil
     import time
     secs = sections(blocks)
@@ -872,7 +872,7 @@ def synthesize(blocks, out_path, engine_name, voice, speed, title):
         print(file=sys.stderr)
 
         if shutil.which("ffmpeg"):
-            encode_with_chapters(files, chapters, out_path, title, Path(tmp))
+            encode_with_chapters(files, chapters, out_path, tags, Path(tmp))
         else:
             if len(chapters) > 1:
                 print("Note: install ffmpeg (brew install ffmpeg) for chapter markers.", file=sys.stderr)
@@ -894,14 +894,14 @@ def concat_without_ffmpeg(files, tmp):
     return out
 
 
-def encode_with_chapters(files, chapters, out_path, title, tmp):
+def encode_with_chapters(files, chapters, out_path, tags, tmp):
     """Concatenate the section files and encode an AAC audiobook with chapter markers
     (QuickTime chapter track, which Apple Books, BookPlayer and CarPlay show)."""
     listing = tmp / "files.txt"
     listing.write_text("".join(f"file '{f}'\n" for f in files))
     meta = tmp / "chapters.txt"
     esc = lambda v: re.sub(r"([=;#\\\n])", r"\\\1", v)
-    lines = [";FFMETADATA1", f"title={esc(title)}", "genre=Audiobook"]
+    lines = [";FFMETADATA1", "genre=Audiobook"] + [f"{k}={esc(v)}" for k, v in tags.items() if v]
     for name, start, end in chapters:
         lines += ["[CHAPTER]", "TIMEBASE=1/1000", f"START={int(start * 1000)}",
                   f"END={int(end * 1000)}", f"title={esc(name)}"]
@@ -915,6 +915,34 @@ def encode_with_chapters(files, chapters, out_path, title, tmp):
 
 
 # ---------------------------------------------------------------- main
+
+def book_tags(pages, heads):
+    """Book title and author from the running heads. By convention the author heads the
+    left-hand pages and the title the right-hand ones (as in many books)."""
+    by_side = {0: Counter(), 1: Counter()}
+    for p in pages:
+        for l in p["lines"]:
+            t = " ".join(l["text"].split())
+            if in_header(l, p) and not re.fullmatch(r"\d{1,4}", t) and is_running_head(t, heads):
+                by_side[p["side"]][t] += 1
+    pick = lambda c: c.most_common(1)[0][0] if c else None
+    return pick(by_side[1]), pick(by_side[0])   # (title, author)
+
+
+def describe_contents(blocks, pages):
+    """Short label for what this audiobook covers: 'Ch 20-21', 'Ch 32', or 'p266-277'."""
+    nums = [int(m.group(1)) for k, t in blocks if k == "chapter"
+            for m in [re.search(r"(?i)chapter\s+(\d+)", t)] if m]
+    if nums:
+        return f"Ch {min(nums)}" if min(nums) == max(nums) else f"Ch {min(nums)}-{max(nums)}"
+    pnums = [p["number"] for p in pages if p["number"] is not None]
+    return f"p{min(pnums)}-{max(pnums)}" if pnums else time_label()
+
+
+def time_label():
+    import datetime
+    return datetime.datetime.now().strftime("%Y-%m-%d %H%M")
+
 
 def kokoro_available():
     try:
@@ -940,7 +968,10 @@ def collect_inputs(args):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("inputs", nargs="+", help="images, folders of images, or videos")
-    ap.add_argument("-o", "--output", required=True, help="output .m4b (or .m4a)")
+    ap.add_argument("-o", "--output", default=None,
+                    help='output .m4b (default: output/<Book> - <Ch 20-21>.m4b, named from the contents)')
+    ap.add_argument("--title", default=None, help="book title tag (default: read from the running heads)")
+    ap.add_argument("--author", default=None, help="author tag (default: read from the running heads)")
     ap.add_argument("--engine", choices=["kokoro", "say"], default=None,
                     help="kokoro: natural neural voice (default when installed); say: built-in macOS voices")
     ap.add_argument("--voice", default=None,
@@ -952,7 +983,6 @@ def main():
                     help="proofread OCR errors with Claude before speaking (uses your `claude` login)")
     args = ap.parse_args()
 
-    out = Path(args.output).expanduser()
     import shutil
     if args.cleanup and not shutil.which("claude") and not os.environ.get("ANTHROPIC_API_KEY"):
         sys.exit("--cleanup needs the `claude` command (Claude Code) or an ANTHROPIC_API_KEY.")
@@ -968,12 +998,23 @@ def main():
     pages = assemble_spreads(records)
     heads = detect_running_heads(pages)
     pages = [analyze_page(p, heads) for p in pages]
+    title, author = book_tags(pages, heads)
+    title, author = args.title or title, args.author or author
     pages = order_pages(pages)
     nums = [p["number"] for p in pages if p["number"] is not None]
     if nums:
         print(f"Pages {min(nums)}-{max(nums)} ({len(pages)} pages)", file=sys.stderr)
 
     blocks = build_text(pages)
+    contents = describe_contents(blocks, pages)
+    if args.output:
+        out = Path(args.output).expanduser()
+    else:
+        name = re.sub(r'[/:\\]', "-", f"{title} - {contents}" if title else contents)
+        out = HERE / "output" / f"{name}.m4b"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if title or author:
+        print(f"Book: {title or '?'} by {author or '?'}", file=sys.stderr)
     md = out.with_suffix(".md")
     md_text = blocks_to_markdown(blocks)
     if args.cleanup:
@@ -986,7 +1027,9 @@ def main():
     if args.text_only:
         return
     print(f"Synthesizing speech ({args.engine})...", file=sys.stderr)
-    chapters = synthesize(blocks, out, args.engine, args.voice, args.speed, out.stem)
+    tags = {"title": f"{title} - {contents}" if title else out.stem, "album": title or out.stem,
+            "artist": author, "album_artist": author}
+    chapters = synthesize(blocks, out, args.engine, args.voice, args.speed, tags)
     print(f"Audio: {out}  ({chapters[-1][2] / 60:.0f} min)", file=sys.stderr)
     for name, start, _ in chapters:
         print(f"  {int(start // 60):3d}:{int(start % 60):02d}  {name}", file=sys.stderr)

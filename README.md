@@ -17,7 +17,7 @@ Keep the folder at a normal-length path such as `~/Documents/book2audio`. Kokoro
 
 ```sh
 # A video of you flipping pages (pause ~1-2 s on each spread)
-./book2audio ~/Downloads/IMG_1168.MOV --cleanup -o "output/Chapter 20-21.m4b"
+./book2audio ~/Downloads/IMG_1168.MOV --cleanup     # -> output/<Book Title> - Ch 20-21.m4b
 
 # Photos or a folder of screenshots
 ./book2audio ~/Desktop/chapter32/ --cleanup -o "output/Chapter 32.m4b"
@@ -32,6 +32,8 @@ Each run writes the audiobook (`.m4b`) and a transcript (`.md`). With `--cleanup
 
 | Option | What it does |
 |---|---|
+| `-o FILE` | Output file. Optional: by default it's named from the contents, e.g. `output/<Book Title> - Ch 20-21.m4b` |
+| `--title`, `--author` | Book title and author tags. By default they're read from the running heads (author on left-hand pages, title on right-hand pages). Use these for a single photo or a book laid out differently |
 | `--cleanup` | Has Claude fix OCR errors before speaking. Uses your Claude Code login (the `claude` command); no separate API key. |
 | `--voice NAME` | Kokoro voice. Default `am_michael`; listen to the samples in `voice_samples/`. |
 | `--speed X` | Speaking speed, e.g. `0.9` or `1.15` |
@@ -47,7 +49,7 @@ Kokoro voices start with a code: `am_` American male, `af_` American female, `bm
 
 ### Chapters
 
-A page is treated as a chapter opening when it has a "Chapter N" line (or Prologue/Epilogue/Part/Interlude) near the top, an optional title under it, and then a tall blank band before the text starts. That's the layout this book uses. Text before the first chapter heading becomes a "Continued" chapter. Chapters show up in Apple Books, BookPlayer and CarPlay.
+A page is treated as a chapter opening when it has a "Chapter N" line (or Prologue/Epilogue/Part/Interlude) near the top, an optional title under it, and then a tall blank band before the text starts. That's a common layout; a book that opens chapters differently may need `detect_chapter_opening` adjusted. Text before the first chapter heading becomes a "Continued" chapter. Chapters show up in Apple Books, BookPlayer and CarPlay.
 
 A blank gap in the middle of a page (a scene break) is not a chapter. It becomes a 1.5-second pause in the audio and a `* * *` line in the transcript. A scene break that falls exactly at a page boundary can't be seen and is read straight through.
 
