@@ -1,0 +1,8 @@
+# Versions known to work together. setup.sh installs these into .venv.
+kokoro-onnx==0.6.1
+onnxruntime==1.31.1
+espeakng-loader==0.2.4
+numpy==2.5.4
+soundfile==0.14.0
+# Only used by --cleanup when the `claude` command isn't installed
+anthropic==2.3.0

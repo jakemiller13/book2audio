@@ -2,11 +2,15 @@
 """book2audio: photos / screenshots / video of book pages -> audiobook for iPhone.
 
 Pipeline: Apple Vision OCR (ocr helper) -> split two-page spreads -> drop running
-heads and page numbers -> rebuild paragraphs -> macOS `say` -> .m4b audiobook.
+heads and page numbers -> rebuild paragraphs -> Kokoro TTS -> .m4b audiobook.
 
 Usage:
-  book2audio.py INPUT [INPUT ...] -o "Chapter 32.m4b" [--voice Samantha] [--rate 185]
+  book2audio INPUT [INPUT ...] [-o "Chapter 32.m4b"] [--voice am_michael] [--cleanup]
+  book2audio --voice-samples
 INPUT can be image files, a folder of images, or video files (.mov/.mp4).
+
+Use it only on books you own, public-domain books, or your own writing, and keep
+what it makes to yourself: the audiobook and transcript are copies of the book.
 """
 import argparse
 import json
@@ -62,8 +66,9 @@ def ensure_ocr_binary():
     src = HERE / "ocr.swift"
     if not OCR_BIN.exists() or OCR_BIN.stat().st_mtime < src.stat().st_mtime:
         print("Compiling OCR helper...", file=sys.stderr)
-        subprocess.run(["swiftc", "-O", str(src), "-o", str(OCR_BIN)], check=True,
-                       stderr=subprocess.DEVNULL)
+        if subprocess.run(["swiftc", "-O", "-suppress-warnings", str(src), "-o", str(OCR_BIN)]).returncode:
+            sys.exit("Couldn't compile the OCR helper. Install the Xcode Command Line Tools "
+                     "(xcode-select --install) and run ./setup.sh again.")
 
 
 CACHE_DIR = Path.home() / "Library" / "Caches" / "book2audio"
@@ -656,7 +661,7 @@ def blocks_to_markdown(blocks):
 
 CLEANUP_MODEL = "claude-opus-5-5"
 CLEANUP_PROMPT = """You are proofreading OCR output from photos of a printed book. The text will be
-read aloud by text-to-speech, so recognition errors are audible.
+read aloud by text-to-speech, so recognition errors would be heard.
 
 Fix only OCR errors:
 - misrecognized letters or words ("I he" -> "The", "tour guards" -> "four guards", "talse" -> "false")
@@ -756,6 +761,7 @@ def markdown_to_blocks(md_text):
 # ---------------------------------------------------------------- audio
 
 MODELS = HERE / "models"
+DEFAULT_VOICE = "am_michael"
 PARAGRAPH_PAUSE = 0.45   # seconds of silence between paragraphs
 CHAPTER_PAUSE = 1.5      # before and after a chapter title
 SCENE_PAUSE = 1.5        # at a scene break (blank gap mid-chapter)
@@ -823,23 +829,7 @@ def render_section_kokoro(engine, paragraphs, wav_path, is_chapter, progress):
     return len(audio) / engine.rate
 
 
-def render_section_say(voice, speed, paragraphs, aiff_path, is_chapter, progress):
-    lead = f"[[slnc {int(CHAPTER_PAUSE * 1000)}]] " if is_chapter else ""
-    paragraphs = [f"[[slnc {int(SCENE_PAUSE * 1000)}]]" if p == SCENE_BREAK else p for p in paragraphs]
-    text = lead + f" [[slnc {int(PARAGRAPH_PAUSE * 1000)}]]\n".join(paragraphs)
-    txt = aiff_path.with_suffix(".txt")
-    txt.write_text(text)
-    cmd = ["say", "-f", str(txt), "-o", str(aiff_path), "-r", str(int(185 * speed))]
-    if voice:
-        cmd += ["-v", voice]
-    subprocess.run(cmd, check=True)
-    progress(sum(len(p.split()) for p in paragraphs))
-    info = subprocess.run(["afinfo", str(aiff_path)], capture_output=True, text=True).stdout
-    return float(re.search(r"estimated duration: ([\d.]+)", info).group(1))
-
-
-def synthesize(blocks, out_path, engine_name, voice, speed, tags):
-    import shutil
+def synthesize(blocks, out_path, voice, speed, tags):
     import time
     secs = sections(blocks)
     total_words = sum(len(p.split()) for _, paras in secs for p in paras)
@@ -854,44 +844,36 @@ def synthesize(blocks, out_path, engine_name, voice, speed, tags):
         eta = (time.time() - started) * (1 - frac) / max(frac, 1e-6)
         print(f"\r  {frac:4.0%} spoken, about {eta / 60:.0f} min left   ", end="", file=sys.stderr, flush=True)
 
-    if engine_name == "kokoro":
-        engine = KokoroVoice(voice or "am_michael", speed)
+    engine = KokoroVoice(voice or DEFAULT_VOICE, speed)
     with tempfile.TemporaryDirectory() as tmp:
         files, chapters, t = [], [], 0.0
         for i, (name, paras) in enumerate(secs):
-            is_chapter = name != "Continued"
-            if engine_name == "kokoro":
-                f = Path(tmp) / f"s{i:03d}.wav"
-                dur = render_section_kokoro(engine, paras, f, is_chapter, progress)
-            else:
-                f = Path(tmp) / f"s{i:03d}.aiff"
-                dur = render_section_say(voice, speed, paras, f, is_chapter, progress)
+            f = Path(tmp) / f"s{i:03d}.wav"
+            dur = render_section_kokoro(engine, paras, f, name != "Continued", progress)
             files.append(f)
             chapters.append((name, t, t + dur))
             t += dur
         print(file=sys.stderr)
-
-        if shutil.which("ffmpeg"):
-            encode_with_chapters(files, chapters, out_path, tags, Path(tmp))
-        else:
-            if len(chapters) > 1:
-                print("Note: install ffmpeg (brew install ffmpeg) for chapter markers.", file=sys.stderr)
-            src = files[0] if len(files) == 1 else concat_without_ffmpeg(files, Path(tmp))
-            fmt = "m4bf" if out_path.suffix.lower() == ".m4b" else "m4af"
-            subprocess.run(["afconvert", "-f", fmt, "-d", "aac", "-b", "64000", str(src), str(out_path)], check=True)
+        encode_with_chapters(files, chapters, out_path, tags, Path(tmp))
     return chapters
 
 
-def concat_without_ffmpeg(files, tmp):
-    import numpy as np
+SAMPLE_VOICES = ["am_michael", "am_fenrir", "am_onyx", "bm_george", "bm_fable", "bm_lewis", "af_heart", "bf_emma"]
+SAMPLE_TEXT = ("Hello. This is the {name} voice. If you choose me, I'll read your book aloud, "
+               "pausing between paragraphs and at every new chapter.")
+
+
+def write_voice_samples():
+    """A short clip per suggested narrator in voice_samples/, to pick a --voice by ear."""
     import soundfile as sf
-    data, rate = [], None
-    for f in files:
-        d, rate = sf.read(str(f), dtype="float32")
-        data.append(d)
-    out = tmp / "all.wav"
-    sf.write(str(out), np.concatenate(data), rate)
-    return out
+    out = HERE / "voice_samples"
+    out.mkdir(exist_ok=True)
+    for v in SAMPLE_VOICES:
+        engine = KokoroVoice(v, 1.0)
+        f = out / f"{v}.wav"
+        sf.write(str(f), engine.speak(SAMPLE_TEXT.format(name=v.split("_")[1].capitalize())), engine.rate)
+        print(f"  {f}", file=sys.stderr)
+    subprocess.run(["open", str(out)])
 
 
 def encode_with_chapters(files, chapters, out_path, tags, tmp):
@@ -967,15 +949,15 @@ def collect_inputs(args):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("inputs", nargs="+", help="images, folders of images, or videos")
+    ap.add_argument("inputs", nargs="*", help="images, folders of images, or videos")
     ap.add_argument("-o", "--output", default=None,
                     help='output .m4b (default: output/<Book> - <Ch 20-21>.m4b, named from the contents)')
     ap.add_argument("--title", default=None, help="book title tag (default: read from the running heads)")
     ap.add_argument("--author", default=None, help="author tag (default: read from the running heads)")
-    ap.add_argument("--engine", choices=["kokoro", "say"], default=None,
-                    help="kokoro: natural neural voice (default when installed); say: built-in macOS voices")
     ap.add_argument("--voice", default=None,
-                    help="Kokoro voice (default am_michael; samples in voice_samples/) or macOS voice for --engine say")
+                    help=f"Kokoro voice (default {DEFAULT_VOICE}; hear the options with --voice-samples)")
+    ap.add_argument("--voice-samples", action="store_true",
+                    help="write a short clip of each suggested voice to voice_samples/ and exit")
     ap.add_argument("--speed", type=float, default=1.0, help="speaking speed, e.g. 0.9 or 1.15 (default 1.0)")
     ap.add_argument("--video-every", type=float, default=0.5, help="seconds between sampled video frames")
     ap.add_argument("--text-only", action="store_true", help="stop after writing the .md transcript")
@@ -984,12 +966,14 @@ def main():
     args = ap.parse_args()
 
     import shutil
+    if not kokoro_available() or not shutil.which("ffmpeg"):
+        sys.exit("book2audio isn't fully set up yet: run ./setup.sh")
+    if args.voice_samples:
+        return write_voice_samples()
+    if not args.inputs:
+        ap.error("give at least one image, folder or video (or --voice-samples)")
     if args.cleanup and not shutil.which("claude") and not os.environ.get("ANTHROPIC_API_KEY"):
         sys.exit("--cleanup needs the `claude` command (Claude Code) or an ANTHROPIC_API_KEY.")
-    if args.engine is None:
-        args.engine = "kokoro" if kokoro_available() else "say"
-    elif args.engine == "kokoro" and not kokoro_available():
-        sys.exit("Kokoro isn't set up: run ./setup.sh")
     ensure_ocr_binary()
     paths = collect_inputs(args.inputs)
     print(f"OCR on {len(paths)} file(s)...", file=sys.stderr)
@@ -1026,10 +1010,10 @@ def main():
     print(f"Transcript: {md}", file=sys.stderr)
     if args.text_only:
         return
-    print(f"Synthesizing speech ({args.engine})...", file=sys.stderr)
+    print("Synthesizing speech...", file=sys.stderr)
     tags = {"title": f"{title} - {contents}" if title else out.stem, "album": title or out.stem,
             "artist": author, "album_artist": author}
-    chapters = synthesize(blocks, out, args.engine, args.voice, args.speed, tags)
+    chapters = synthesize(blocks, out, args.voice, args.speed, tags)
     print(f"Audio: {out}  ({chapters[-1][2] / 60:.0f} min)", file=sys.stderr)
     for name, start, _ in chapters:
         print(f"  {int(start // 60):3d}:{int(start % 60):02d}  {name}", file=sys.stderr)
