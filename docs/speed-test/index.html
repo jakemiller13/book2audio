@@ -22,9 +22,13 @@
          font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
   main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
   h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  h2 { font-size: 1rem; margin: 0 0 8px; }
   p { margin: 0 0 12px; }
   .muted { color: var(--muted); font-size: .9rem; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin: 16px 0; }
+  fieldset { border: 0; padding: 0; margin: 0 0 14px; }
+  label { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; }
+  input[type=radio] { margin-top: 4px; accent-color: var(--accent); }
   button { font: inherit; font-weight: 600; width: 100%; padding: 14px; margin: 6px 0; border-radius: 10px;
            border: 1px solid var(--accent); background: var(--accent); color: var(--accent-text); }
   button.secondary { background: transparent; color: var(--accent); }
@@ -44,13 +48,21 @@
 <body>
 <main>
   <h1>Voice speed test</h1>
-  <p class="muted">Checks whether this phone can generate the book2audio narrator voice fast enough to make audiobooks without a computer. It reads five short sentences written for this test. Nothing is uploaded; everything runs on this device.</p>
+  <p class="muted">Checks whether this device can generate the book2audio narrator voice fast enough to make audiobooks without a computer. It reads five short sentences written for this test. Nothing is uploaded; everything runs on this device.</p>
 
   <div class="card">
-    <p><strong>1. Standard test</strong> (processor). Downloads a 92 MB voice model once.</p>
-    <button id="run-wasm">Run standard test</button>
-    <p><strong>2. Graphics-chip test</strong> (may be faster). Downloads a 325 MB model once. Use Wi-Fi.</p>
-    <button id="run-webgpu" class="secondary">Run graphics-chip test</button>
+    <fieldset>
+      <h2>Model</h2>
+      <label><input type="radio" name="model" value="cpu"> <span>Processor, 92 MB</span></label>
+      <label><input type="radio" name="model" value="gpu-half" checked> <span>Graphics chip, half size, 163 MB</span></label>
+      <label><input type="radio" name="model" value="gpu-full"> <span>Graphics chip, full size, 325 MB</span></label>
+    </fieldset>
+    <fieldset>
+      <h2>Run it</h2>
+      <label><input type="radio" name="where" value="worker" checked> <span>In the background</span></label>
+      <label><input type="radio" name="where" value="page"> <span>On the page itself</span></label>
+    </fieldset>
+    <button id="run">Run test</button>
   </div>
 
   <div class="card">
@@ -63,7 +75,7 @@
     <button id="copy" class="secondary" hidden>Copy results</button>
   </div>
 
-  <p class="muted">Keep this page open and the screen on while a test runs. To run the other test, reload the page first. A second run is faster because the model stays cached in the browser.</p>
+  <p class="muted">Use Wi-Fi and keep the screen on with this page in front. To try another combination, reload the page first. Models stay cached, so a second run skips the download.</p>
 </main>
 
 <script type="module">
@@ -76,11 +88,12 @@ const show = (label, value) => {
 const status = (t) => ($("status").textContent = t);
 const bar = (f) => ($("bar").style.width = `${Math.round(f * 100)}%`);
 const s1 = (ms) => `${(ms / 1000).toFixed(1)} s`;
+const LABELS = { cpu: "Processor (92 MB)", "gpu-half": "Graphics chip, half size (163 MB)", "gpu-full": "Graphics chip, full size (325 MB)" };
 
-let started = 0, phaseStart = 0, timer = null;
+let started = 0, phaseStart = 0, phase = "", timer = null;
 function tick() {
   const now = performance.now();
-  $("timer").textContent = `Elapsed ${s1(now - started)} · this step ${s1(now - phaseStart)}`;
+  $("timer").textContent = `Elapsed ${s1(now - started)} · ${phase || "this step"} ${s1(now - phaseStart)}`;
 }
 
 function wavBlob(chunks, rate) {
@@ -97,39 +110,48 @@ function wavBlob(chunks, rate) {
 }
 
 const chunks = [];
-const timings = [];   // [ms, seconds of audio] per sentence
-let rate = 24000;
+const timings = [];   // [ms, seconds of audio] for sentences 2-5 (sentence 1 includes warm-up)
+let rate = 24000, choice = "gpu-half";
 
 function handle(msg) {
   switch (msg.type) {
+    case "info-gpu":
+      show("Graphics chip", `${msg.gpu}${msg.f16 ? " (half precision supported)" : " (no half precision)"}`);
+      break;
     case "info":
-      show("Multi-core allowed", msg.isolated ? "yes" : "no");
-      show("Cores used", `${msg.threads} of ${msg.cores}`);
+      if (choice === "cpu") {
+        show("Multi-core allowed", msg.isolated ? "yes" : "no");
+        show("Cores used", `${msg.threads} of ${msg.cores}`);
+      }
       break;
     case "download":
       bar(msg.loaded / msg.total);
       status(`Downloading voice model... ${Math.round(msg.loaded / 1e6)} of ${Math.round(msg.total / 1e6)} MB`);
       break;
-    case "loaded":
-      show("Model load", s1(msg.ms));
-      bar(0);
+    case "step-start":
+      phase = msg.name; phaseStart = performance.now();
+      if (msg.name !== "Load model") status(`${msg.name}...`);
       break;
-    case "sentence-start":
-      phaseStart = performance.now();
-      status(`Generating sentence ${msg.i + 1} of ${msg.n}...`);
+    case "step":
+      show(msg.name, s1(msg.ms));
+      if (msg.name === "Load model") bar(0);
       break;
     case "sentence":
       rate = msg.rate;
       chunks.push(msg.audio);
-      timings.push([msg.ms, msg.seconds]);
-      show(`Sentence ${msg.i + 1}`, `${msg.seconds.toFixed(1)} s of audio in ${s1(msg.ms)} (${(msg.seconds * 1000 / msg.ms).toFixed(2)}×)`);
+      if (msg.ms === null) {
+        show("Sentence 1", `${msg.seconds.toFixed(1)} s of audio (timed in parts above)`);
+      } else {
+        timings.push([msg.ms, msg.seconds]);
+        show(`Sentence ${msg.i + 1}`, `${msg.seconds.toFixed(1)} s of audio in ${s1(msg.ms)} (${(msg.seconds * 1000 / msg.ms).toFixed(2)}×)`);
+      }
       bar((msg.i + 1) / msg.n);
       break;
     case "done":
       finish();
       break;
     case "unsupported":
-      fail("This browser doesn't offer WebGPU here, so the graphics-chip test can't run.");
+      fail("This browser doesn't offer the graphics chip (WebGPU) here.");
       break;
     case "error":
       fail(`Test failed: ${msg.message.split("\n")[0]}`, msg.message);
@@ -139,17 +161,14 @@ function handle(msg) {
 
 function finish() {
   clearInterval(timer);
-  const sum = (a) => a.reduce(([m, s], [m2, s2]) => [m + m2, s + s2], [0, 0]);
-  const [allMs, allSec] = sum(timings);
-  const [warmMs, warmSec] = timings.length > 1 ? sum(timings.slice(1)) : [allMs, allSec];
-  const speed = warmSec / (warmMs / 1000);
-  show("Total", `${allSec.toFixed(1)} s of audio in ${s1(allMs)}`);
-  show("Speed (after warm-up)", `${speed.toFixed(2)}× real time`);
+  const ms = timings.reduce((a, [m]) => a + m, 0), sec = timings.reduce((a, [, s]) => a + s, 0);
+  const speed = sec / (ms / 1000);
+  show("Speed (sentences 2-5)", `${speed.toFixed(2)}× real time`);
   show("25-min chapter", `about ${Math.round(25 / speed)} min to make`);
   const v = $("verdict");
   if (speed >= 2) { v.className = "verdict good"; v.textContent = "Fast enough: an on-phone version looks practical."; }
   else if (speed >= 0.7) { v.className = "verdict warn"; v.textContent = "Usable but slow: a chapter takes about as long as listening to it."; }
-  else { v.className = "verdict bad"; v.textContent = "Too slow for whole chapters this way on this phone."; }
+  else { v.className = "verdict bad"; v.textContent = "Too slow for whole chapters this way on this device."; }
   $("player").src = URL.createObjectURL(wavBlob(chunks, rate));
   $("player").hidden = false;
   $("copy").hidden = false;
@@ -163,41 +182,51 @@ function fail(text, detail) {
   $("copy").hidden = false;
 }
 
-async function runOnPage(device) {
-  show("Ran in", "the page (background worker unavailable)");
-  const { bench } = await import("./bench.js");
-  await bench(device, handle).catch((e) => handle({ type: "error", message: String((e && e.stack) || e) }));
+async function runOnPage(note) {
+  show("Ran in", note || "the page itself");
+  try {
+    const { bench } = await import("./bench.js");
+    await bench(choice, handle);
+  } catch (e) {
+    handle({ type: "error", message: String((e && e.stack) || e) });
+  }
 }
 
-function run(device) {
-  for (const b of document.querySelectorAll("button")) b.disabled = true;
-  rows.length = 0;
-  show("Test", device === "webgpu" ? "Graphics chip (WebGPU, full model)" : "Standard (processor, 92 MB model)");
+function run() {
+  choice = document.querySelector("input[name=model]:checked").value;
+  const where = document.querySelector("input[name=where]:checked").value;
+  for (const el of document.querySelectorAll("button, input")) el.disabled = true;
+  show("Test", LABELS[choice]);
   show("Device", navigator.userAgent.replace(/^Mozilla\/5\.0 /, ""));
   started = phaseStart = performance.now();
+  phase = "Starting";
   timer = setInterval(tick, 250);
   status("Starting...");
+  if (where === "page") return runOnPage();
 
   let worker;
-  try { worker = new Worker("worker.js", { type: "module" }); } catch { return runOnPage(device); }
+  try { worker = new Worker("worker.js", { type: "module" }); }
+  catch { return runOnPage("the page (background unavailable)"); }
   let ready = false;
-  const fallback = setTimeout(() => { if (!ready) { worker.terminate(); runOnPage(device); } }, 30000);
-  worker.onerror = (e) => { if (!ready) { clearTimeout(fallback); worker.terminate(); runOnPage(device); } else handle({ type: "error", message: e.message || "worker error" }); };
+  const fallback = setTimeout(() => { if (!ready) { worker.terminate(); runOnPage("the page (background didn't start)"); } }, 30000);
+  worker.onerror = (e) => {
+    if (!ready) { clearTimeout(fallback); worker.terminate(); runOnPage("the page (background failed to start)"); }
+    else handle({ type: "error", message: e.message || "background worker error" });
+  };
   worker.onmessage = (e) => {
     if (e.data.type === "ready") {
       ready = true; clearTimeout(fallback);
-      show("Ran in", "background worker");
-      worker.postMessage({ device });
-    } else if (e.data.type === "unsupported" && device === "webgpu") {
-      worker.terminate(); runOnPage(device);   // some browsers offer WebGPU only on the page itself
+      show("Ran in", "the background");
+      worker.postMessage({ choice });
+    } else if (e.data.type === "unsupported") {
+      worker.terminate(); runOnPage("the page (no graphics chip in the background)");
     } else {
       handle(e.data);
     }
   };
 }
 
-$("run-wasm").onclick = () => run("wasm");
-$("run-webgpu").onclick = () => run("webgpu");
+$("run").onclick = run;
 $("copy").onclick = async () => {
   const text = rows.map(([k, v]) => `${k}: ${v}`).join("\n") + "\n" + $("verdict").textContent;
   try { await navigator.clipboard.writeText(text); $("copy").textContent = "Copied"; }

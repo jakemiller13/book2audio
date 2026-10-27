@@ -3,7 +3,7 @@ import { bench } from "./bench.js";
 
 self.onmessage = async (e) => {
   try {
-    await bench(e.data.device, (msg, transfer) => self.postMessage(msg, transfer || []));
+    await bench(e.data.choice, (msg, transfer) => self.postMessage(msg, transfer || []));
   } catch (err) {
     self.postMessage({ type: "error", message: String((err && err.stack) || err) });
   }
