@@ -1,6 +1,5 @@
 // Shared by worker.js (background thread) and index.html (when run on the page itself).
 import { KokoroTTS, env } from "https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/dist/kokoro.web.js";
-import { phonemize } from "https://cdn.jsdelivr.net/npm/phonemizer@1.2.1/dist/phonemizer.js";
 
 const MODEL = "onnx-community/Kokoro-82M-v1.0-ONNX";
 const VOICE = "am_michael";
@@ -22,6 +21,16 @@ export const SENTENCES = [
   "He liked this hour best: the work done, the light turning, and the whole coast trusting him to stay awake.",
 ];
 
+// The same sentences' pronunciations, worked out in advance on a computer (kokoro-onnx,
+// en-us), so the voice model can be timed on its own when the pronunciation engine stalls.
+export const PHONEMES = [
+  "ðə lˈaɪthaʊs kˈiːpɚ klˈaɪmd ðə stˈɛɹz.",
+  "hiː kˈaʊntᵻd ˈiːtʃ stˈɛp ˌaʊɾəv hˈæbɪt, ðə wˈeɪ hɪz fˈɑːðɚ hæd tˈɔːt hˌɪm.",
+  "æt ðə tˈɑːp, hiː wˈaɪpt ðə sˈɔlt fɹʌmðə ɡɹˈeɪt lˈɛnz ænd tʃˈɛkt ðɪ ˈɔɪl, ðˈɛn sˈæt baɪ ðə wˈɪndoʊ wɪð ɐ kˈʌp ʌv tˈiː ɡɔn kˈoʊld.",
+  "fˈɑːɹ bᵻlˈoʊ, ðə fˈɪʃɪŋ bˈoʊts wɜː tˈɜːnɪŋ fɔːɹ hˈoʊm, ðɛɹ lˈæntɚnz bˈɑːbɪŋ lˈaɪk fˈaɪɚflaɪz ɔnðə dˈɑːɹk wˈɔːɾɚ.",
+  "hiː lˈaɪkt ðɪs ˈaʊɚ bˈɛst: ðə wˈɜːk dˈʌn, ðə lˈaɪt tˈɜːnɪŋ, ænd ðə hˈoʊl kˈoʊst tɹˈʌstɪŋ hˌɪm tə stˈeɪ ɐwˈeɪk.",
+];
+
 async function step(post, name, fn) {
   post({ type: "step-start", name });
   const t = performance.now();
@@ -30,7 +39,7 @@ async function step(post, name, fn) {
   return result;
 }
 
-export async function bench(choice, post) {
+export async function bench(choice, post, { skipPronunciation = false } = {}) {
   const [device, dtype] = MODELS[choice];
   const nav = self.navigator;
   if (device === "webgpu") {
@@ -61,7 +70,10 @@ export async function bench(choice, post) {
 
   // Sentence 1, one part at a time, so a stall shows which part is stuck
   await step(post, "Fetch voice file", () => fetch(VOICE_URL).then((r) => r.arrayBuffer()));
-  const phonemes = await step(post, "Pronunciation", () => phonemize(SENTENCES[0], "en-us").then((p) => p.join(" ")));
+  const phonemes = skipPronunciation ? PHONEMES[0] : await step(post, "Pronunciation", async () => {
+    const { phonemize } = await import("https://cdn.jsdelivr.net/npm/phonemizer@1.2.1/dist/phonemizer.js");
+    return (await phonemize(SENTENCES[0], "en-us")).join(" ");
+  });
   const ids = await step(post, "Tokenize", () => tts.tokenizer(phonemes, { truncation: true }).input_ids);
   const first = await step(post, "Voice model (first run)", () => tts.generate_from_ids(ids, { voice: VOICE }));
   const send = (i, ms, out) => post({ type: "sentence", i, n: SENTENCES.length, ms,
@@ -71,7 +83,9 @@ export async function bench(choice, post) {
   for (let i = 1; i < SENTENCES.length; i++) {
     post({ type: "step-start", name: `Sentence ${i + 1}` });
     const t = performance.now();
-    const out = await tts.generate(SENTENCES[i], { voice: VOICE });
+    const out = skipPronunciation
+      ? await tts.generate_from_ids(tts.tokenizer(PHONEMES[i], { truncation: true }).input_ids, { voice: VOICE })
+      : await tts.generate(SENTENCES[i], { voice: VOICE });
     send(i, performance.now() - t, out);
   }
   post({ type: "done" });

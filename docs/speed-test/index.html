@@ -28,7 +28,7 @@
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin: 16px 0; }
   fieldset { border: 0; padding: 0; margin: 0 0 14px; }
   label { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; }
-  input[type=radio] { margin-top: 4px; accent-color: var(--accent); }
+  input[type=radio], input[type=checkbox] { margin-top: 4px; accent-color: var(--accent); }
   button { font: inherit; font-weight: 600; width: 100%; padding: 14px; margin: 6px 0; border-radius: 10px;
            border: 1px solid var(--accent); background: var(--accent); color: var(--accent-text); }
   button.secondary { background: transparent; color: var(--accent); }
@@ -61,6 +61,10 @@
       <h2>Run it</h2>
       <label><input type="radio" name="where" value="worker" checked> <span>In the background</span></label>
       <label><input type="radio" name="where" value="page"> <span>On the page itself</span></label>
+    </fieldset>
+    <fieldset>
+      <h2>Pronunciation</h2>
+      <label><input type="checkbox" id="skip" checked> <span>Skip it: use pronunciations worked out in advance, to time the voice model on its own</span></label>
     </fieldset>
     <button id="run">Run test</button>
   </div>
@@ -111,7 +115,7 @@ function wavBlob(chunks, rate) {
 
 const chunks = [];
 const timings = [];   // [ms, seconds of audio] for sentences 2-5 (sentence 1 includes warm-up)
-let rate = 24000, choice = "gpu-half";
+let rate = 24000, choice = "gpu-half", skip = true;
 
 function handle(msg) {
   switch (msg.type) {
@@ -186,7 +190,7 @@ async function runOnPage(note) {
   show("Ran in", note || "the page itself");
   try {
     const { bench } = await import("./bench.js");
-    await bench(choice, handle);
+    await bench(choice, handle, { skipPronunciation: skip });
   } catch (e) {
     handle({ type: "error", message: String((e && e.stack) || e) });
   }
@@ -195,8 +199,9 @@ async function runOnPage(note) {
 function run() {
   choice = document.querySelector("input[name=model]:checked").value;
   const where = document.querySelector("input[name=where]:checked").value;
+  skip = $("skip").checked;
   for (const el of document.querySelectorAll("button, input")) el.disabled = true;
-  show("Test", LABELS[choice]);
+  show("Test", LABELS[choice] + (skip ? ", pronunciation skipped" : ""));
   show("Device", navigator.userAgent.replace(/^Mozilla\/5\.0 /, ""));
   started = phaseStart = performance.now();
   phase = "Starting";
@@ -217,7 +222,7 @@ function run() {
     if (e.data.type === "ready") {
       ready = true; clearTimeout(fallback);
       show("Ran in", "the background");
-      worker.postMessage({ choice });
+      worker.postMessage({ choice, skip });
     } else if (e.data.type === "unsupported") {
       worker.terminate(); runOnPage("the page (no graphics chip in the background)");
     } else {
