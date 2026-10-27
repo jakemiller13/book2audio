@@ -23,6 +23,7 @@ HERE = Path(__file__).resolve().parent
 OCR_BIN = HERE / "ocr"
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".heic", ".tif", ".tiff"}
 VIDEO_EXT = {".mov", ".mp4", ".m4v"}
+SCENE_BREAK = "* * *"
 _WORDS = None
 
 
@@ -69,24 +70,42 @@ CACHE_DIR = Path.home() / "Library" / "Caches" / "book2audio"
 
 
 def run_ocr(paths, video_every):
-    """OCR every input, one file at a time, caching results so re-runs (a different voice,
-    say) skip straight to the audio."""
+    """OCR every input, caching results so re-runs (a different voice, say) skip straight
+    to the audio. Vision works one image at a time per process, so the work is spread over
+    several OCR processes: photos one per process, videos split by frame (every Nth)."""
     import hashlib
+    from concurrent.futures import ThreadPoolExecutor
+    workers = max(1, min(8, (os.cpu_count() or 4) - 2))
+
+    def cache_path(path):
+        st = path.stat()
+        every = video_every if path.suffix.lower() in VIDEO_EXT else ""
+        key = f"{path.resolve()}|{st.st_size}|{st.st_mtime}|{every}|{OCR_BIN.stat().st_mtime}"
+        return CACHE_DIR / (hashlib.sha1(key.encode()).hexdigest() + ".jsonl")
+
+    jobs = []   # (path, command)
+    for path in paths:
+        if cache_path(path).exists():
+            continue
+        if path.suffix.lower() in VIDEO_EXT:
+            jobs += [(path, [str(OCR_BIN), "--video", str(path), "--every", str(video_every),
+                             "--shard", f"{k}/{workers}"]) for k in range(workers)]
+        else:
+            jobs.append((path, [str(OCR_BIN), str(path)]))
+    with ThreadPoolExecutor(workers) as pool:
+        outs = list(pool.map(lambda j: subprocess.run(j[1], check=True, capture_output=True,
+                                                      text=True).stdout, jobs))
+    by_path = {}
+    for (path, _), out in zip(jobs, outs):
+        by_path.setdefault(path, []).extend(json.loads(l) for l in out.splitlines() if l.strip())
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    for path, recs in by_path.items():
+        recs.sort(key=lambda r: r.get("time") or 0)  # stable: keeps pass order per frame
+        cache_path(path).write_text("".join(json.dumps(r) + "\n" for r in recs))
+
     records = []
     for path in paths:
-        st = path.stat()
-        is_video = path.suffix.lower() in VIDEO_EXT
-        key = f"{path.resolve()}|{st.st_size}|{st.st_mtime}|{video_every if is_video else ''}|{OCR_BIN.stat().st_mtime}"
-        cache = CACHE_DIR / (hashlib.sha1(key.encode()).hexdigest() + ".jsonl")
-        if cache.exists():
-            out = cache.read_text()
-        else:
-            cmd = [str(OCR_BIN), "--video", str(path), "--every", str(video_every)] if is_video \
-                else [str(OCR_BIN), str(path)]
-            out = subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
-            CACHE_DIR.mkdir(parents=True, exist_ok=True)
-            cache.write_text(out)
-        records += [json.loads(l) for l in out.splitlines() if l.strip()]
+        records += [json.loads(l) for l in cache_path(path).read_text().splitlines() if l.strip()]
     return records
 
 
@@ -95,7 +114,9 @@ def run_ocr(paths, video_every):
 def find_gutter(lines):
     """x position of the book's spine: the vertical strip crossed by the fewest text lines,
     with real text on both sides (so the empty desk beside the book doesn't count).
-    Same rule as findGutter in ocr.swift. Returns None for a single page."""
+    A line only "crosses" if it reaches 1% past the strip on both sides: lines curling
+    into the spine often overshoot it slightly. Same rule as findGutter in ocr.swift.
+    Returns None for a single page."""
     long = [l for l in lines if len(l["text"]) > 15]
     if len(long) < 6:
         return None
@@ -103,9 +124,9 @@ def find_gutter(lines):
     for i in range(20, 81):
         x = i / 100
         left = sum(1 for l in long if (l["x0"] + l["x1"]) / 2 < x)
-        if left < len(long) // 5 or len(long) - left < len(long) // 5:
+        if left < 3 or len(long) - left < 3:
             continue
-        counts.append((x, sum(1 for l in lines if l["x0"] < x < l["x1"])))
+        counts.append((x, sum(1 for l in lines if l["x0"] < x - 0.01 and x + 0.01 < l["x1"])))
     if not counts:
         return None
     min_n = min(n for _, n in counts)
@@ -113,6 +134,15 @@ def find_gutter(lines):
         return None
     xs = [x for x, n in counts if n == min_n]
     return xs[len(xs) // 2]
+
+
+def looks_two_column(lines):
+    """Most lines span only about half the text width: two pages side by side."""
+    long = [l for l in lines if len(l["text"]) > 25]
+    if len(long) < 10:
+        return False
+    span = max(l["x1"] for l in long) - min(l["x0"] for l in long)
+    return statistics.median(l["x1"] - l["x0"] for l in long) < 0.6 * span
 
 
 def in_text_column(lines):
@@ -143,6 +173,8 @@ def assemble_spreads(records):
     for (source, time), passes in frames.items():
         full = [l for l in passes["full"]["lines"] if l["text"].strip()]
         gutter = find_gutter(full)
+        if gutter is None and time is not None and looks_two_column(full):
+            continue  # a spread we couldn't split (camera shake, page mid-turn); other frames cover it
         sides = [(0, None, 1.0)] if gutter is None else [(0, 0.0, gutter), (1, gutter, 1.0)]
         for side, lo, hi in sides:
             lo = 0.0 if lo is None else lo
@@ -227,6 +259,8 @@ def gap_fillers(fast, lines, lo, hi):
     ys = sorted(l["ly"] for l in lines)
     spacing = statistics.median(b - a for a, b in zip(ys, ys[1:]))
     matched = [match(f) for f in side]
+    reading_order = sorted(lines, key=functools.cmp_to_key(above))
+    rank = {id(l): i for i, l in enumerate(reading_order)}
     extra = []
     for i, f in enumerate(side):
         if matched[i] is not None or f["conf"] < 0.5 or sum(c.isalpha() for c in f["text"]) < 3:
@@ -235,6 +269,8 @@ def gap_fillers(fast, lines, lo, hi):
         nxt = next((matched[j] for j in range(i + 1, len(side)) if matched[j]), None)
         if prev is None or nxt is None or prev is nxt or min(len(prev["text"]), len(nxt["text"])) < 25:
             continue  # only fill gaps between ordinary body lines (not headings)
+        if rank[id(nxt)] - rank[id(prev)] > 1:
+            continue  # the accurate pass has something in between (e.g. the line split in two)
         x = (f["lx"] + f["rx"]) / 2
         if y_at(nxt, x) - y_at(prev, x) < 1.6 * spacing:
             continue  # no empty line slot here: it's a fragment of a line we already have
@@ -320,7 +356,7 @@ def analyze_page(page, running_heads):
         t = l["text"].strip()
         if in_header(l, page) and re.fullmatch(r"\d{1,4}", t):
             page["number"] = int(t)
-        elif in_header(l, page) and norm(t) in running_heads:
+        elif in_header(l, page) and is_running_head(t, running_heads):
             pass
         else:
             lines.append(l)
@@ -358,6 +394,15 @@ def analyze_page(page, running_heads):
                 r["para_start"] = True
             elif i > 0 and body[i - 1]["short"]:
                 r["para_start"] = True
+    # A tall blank gap mid-page is a scene break, unless what follows is a lone speck
+    # far below the text (a finger, the next page's edge).
+    for i in range(len(body) - 1, 0, -1):
+        gap = (body[i]["ly"] - body[i - 1]["ly"]) / page["spacing"]
+        if gap > 2.5:
+            if i == len(body) - 1 and len(body[i]["text"]) < 15:
+                body.pop()
+            else:
+                body[i]["scene_break"] = body[i]["para_start"] = True
     page["body"] = body
     page["quality"] = sum(len(r["text"]) * r["conf"] for r in body) * page["legibility"] ** 2
     return page
@@ -402,28 +447,46 @@ def norm(t):
     return re.sub(r"[^a-z]", "", t.lower())
 
 
-def detect_running_heads(pages):
-    """Text repeated in the header zone above *different* page content (book title, author).
-    Requiring different content below matters for video, where many frames show the same page."""
+def is_running_head(text, heads):
+    """Exact or close match: OCR misreads heads ("Christopner noocchio")."""
     import difflib
-    below = {}
+    n = norm(text)
+    return n in heads or any(difflib.SequenceMatcher(None, n, h).ratio() > 0.75 for h in heads)
+
+
+def detect_running_heads(pages):
+    """Text repeated in the header zone of *different* pages (book title, author).
+    Video has many frames of each page, so first group the views into pages by their
+    text, then require a candidate (allowing OCR variants) to top at least two pages."""
+    import difflib
+    page_ids, sigs = [], []
     for p in pages:
-        lines = sorted(p["lines"], key=lambda l: l["ly"])
-        for i, r in enumerate(lines):
+        words = re.findall(r"[a-z]+", " ".join(l["text"] for l in p["lines"]).lower())
+        sig = {tuple(words[i:i + 3]) for i in range(len(words) - 2)}
+        pid = next((j for j, s in enumerate(sigs)
+                    if sig and s and len(sig & s) / min(len(sig), len(s)) > 0.4), None)
+        if pid is None:
+            sigs.append(set(sig))
+            pid = len(sigs) - 1
+        else:
+            sigs[pid] |= sig
+        page_ids.append(pid)
+
+    groups = []   # [{variants}, {page ids}]
+    for p, pid in zip(pages, page_ids):
+        for r in p["lines"]:
             t = r["text"].strip()
-            if not in_header(r, p) or re.fullmatch(r"\d{1,4}", t) or not norm(t) or CHAPTER_RE.match(t):
+            n = norm(t)
+            if not in_header(r, p) or re.fullmatch(r"\d{1,4}", t) or not n or CHAPTER_RE.match(t):
                 continue
-            nxt = next((l["text"] for l in lines[i + 1:] if not in_header(l, p)), "")
-            below.setdefault(norm(t), []).append(norm(nxt)[:40])
-    heads = set()
-    for t, nexts in below.items():
-        distinct = []
-        for n in nexts:
-            if all(difflib.SequenceMatcher(None, n, d).ratio() < 0.6 for d in distinct):
-                distinct.append(n)
-        if len(distinct) >= 2:
-            heads.add(t)
-    return heads
+            g = next((g for g in groups if any(difflib.SequenceMatcher(None, n, v).ratio() > 0.75
+                                               for v in g[0])), None)
+            if g is None:
+                groups.append([{n}, {pid}])
+            else:
+                g[0].add(n)
+                g[1].add(pid)
+    return {v for variants, pids in groups if len(pids) >= 2 for v in variants}
 
 
 # ---------------------------------------------------------------- ordering / dedupe
@@ -452,16 +515,19 @@ def order_pages(pages):
             best["shingles"] |= p["shingles"]
         else:
             clusters.append({"members": [p], "shingles": set(p["shingles"]), "first": idx})
-    # Misread page numbers ("867" for 267) would scramble the order: drop implausible ones.
-    read = [p["number"] for p in pages if p["number"] is not None]
-    if read:
-        mid = statistics.median(read)
-        for p in pages:
-            if p["number"] is not None and abs(p["number"] - mid) > 2 * len(clusters) + 10:
-                p["number"] = None
     for c in clusters:
         for m in c["members"]:
             m["cluster"] = c
+
+    # Misread page numbers ("867" for 267) would scramble the order. A real number has
+    # support: some *other* page nearby in the numbering. (Not "close to the median":
+    # several recordings can cover separate stretches of the book.)
+    read = [(p["number"], id(p["cluster"])) for p in pages if p.get("cluster") and p["number"] is not None]
+    if len({cid for _, cid in read}) > 1:
+        for p in pages:
+            if p.get("cluster") and p["number"] is not None and not any(
+                    cid != id(p["cluster"]) and 0 < abs(n - p["number"]) <= 4 for n, cid in read):
+                p["number"] = None
 
     # 2. Vote on each page's number: its own readings, plus the facing page's readings
     #    +/- 1 (a frame showing 276|277 is evidence for both).
@@ -562,11 +628,13 @@ def build_text(pages):
             flush()
             blocks.append(("chapter", p["chapter"]))
             if p["body"]:
-                p["body"][0]["text"] = sentence_case_lead_in(p["body"][0]["text"])
+                p["body"][0]["text"] = sentence_case_lead_in(clean_line(p["body"][0]["text"]))
         for i, r in enumerate(p["body"]):
             t = clean_line(r["text"])
             if r.get("para_start") or (i == 0 and prev_short):
                 flush()
+            if r.get("scene_break"):
+                blocks.append(("break", ""))
             if para.endswith("-") and t[:1].islower():
                 para = para[:-1] + t          # re-join hyphenated word
             elif para:
@@ -580,7 +648,8 @@ def build_text(pages):
 
 
 def blocks_to_markdown(blocks):
-    return "\n\n".join(f"## {t}" if k == "chapter" else t for k, t in blocks) + "\n"
+    out = {"chapter": "## {}", "break": SCENE_BREAK, "para": "{}"}
+    return "\n\n".join(out[k].format(t) for k, t in blocks) + "\n"
 
 
 # ---------------------------------------------------------------- AI proofreading (optional)
@@ -599,7 +668,7 @@ Fix only OCR errors:
 Do not reword, modernize, summarize, or "improve" the author's prose. Keep invented names and
 words exactly as the author would spell them, using their most common spelling in the text.
 Keep every paragraph, in order, separated by a blank line, and keep "## " heading lines as they
-are. If a passage is garbled beyond repair, leave it as it is.
+are, and "* * *" scene-break lines as they are. If a passage is garbled beyond repair, leave it as it is.
 
 Return only the corrected text, with no commentary."""
 
@@ -677,6 +746,8 @@ def markdown_to_blocks(md_text):
         para = para.strip()
         if para.startswith("## "):
             blocks.append(("chapter", para[3:].strip()))
+        elif para == SCENE_BREAK:
+            blocks.append(("break", ""))
         elif para:
             blocks.append(("para", " ".join(para.split())))
     return blocks
@@ -687,6 +758,7 @@ def markdown_to_blocks(md_text):
 MODELS = HERE / "models"
 PARAGRAPH_PAUSE = 0.45   # seconds of silence between paragraphs
 CHAPTER_PAUSE = 1.5      # before and after a chapter title
+SCENE_PAUSE = 1.5        # at a scene break (blank gap mid-chapter)
 
 
 def sections(blocks):
@@ -699,7 +771,7 @@ def sections(blocks):
         else:
             if not out:
                 out.append(("Continued", []))
-            out[-1][1].append(text)
+            out[-1][1].append(SCENE_BREAK if kind == "break" else text)
     return out
 
 
@@ -714,6 +786,10 @@ def speakable(text):
 
 class KokoroVoice:
     def __init__(self, voice, speed):
+        import espeakng_loader
+        if len(espeakng_loader.get_data_path()) >= 160:  # espeak-ng's fixed path buffer
+            sys.exit(f"Kokoro can't load its pronunciation data because the folder path is too long:\n"
+                     f"  {HERE}\nMove the book2audio folder somewhere shorter (e.g. ~/Documents) and run ./setup.sh again.")
         from kokoro_onnx import Kokoro
         self.k = Kokoro(str(MODELS / "kokoro-v1.0.onnx"), str(MODELS / "voices-v1.0.bin"))
         if voice not in self.k.get_voices():
@@ -733,6 +809,9 @@ def render_section_kokoro(engine, paragraphs, wav_path, is_chapter, progress):
     import soundfile as sf
     chunks = []
     for i, para in enumerate(paragraphs):
+        if para == SCENE_BREAK:
+            chunks.append(np.zeros(int(engine.rate * SCENE_PAUSE), dtype=np.float32))
+            continue
         audio = engine.speak(para)
         pause = CHAPTER_PAUSE if (is_chapter and i == 0) else PARAGRAPH_PAUSE
         chunks += [audio, np.zeros(int(engine.rate * pause), dtype=np.float32)]
@@ -746,6 +825,7 @@ def render_section_kokoro(engine, paragraphs, wav_path, is_chapter, progress):
 
 def render_section_say(voice, speed, paragraphs, aiff_path, is_chapter, progress):
     lead = f"[[slnc {int(CHAPTER_PAUSE * 1000)}]] " if is_chapter else ""
+    paragraphs = [f"[[slnc {int(SCENE_PAUSE * 1000)}]]" if p == SCENE_BREAK else p for p in paragraphs]
     text = lead + f" [[slnc {int(PARAGRAPH_PAUSE * 1000)}]]\n".join(paragraphs)
     txt = aiff_path.with_suffix(".txt")
     txt.write_text(text)

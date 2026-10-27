@@ -2,7 +2,7 @@
 //
 // Usage:
 //   ocr image1.jpg image2.png ...        -> one JSON record per image
-//   ocr --video clip.mov [--every 0.5]   -> one JSON record per sampled frame
+//   ocr --video clip.mov [--every 0.5] [--shard k/N]   -> one JSON record per sampled frame
 //
 // Output: JSON lines on stdout, each {"source", "time", "width", "height", "pass", "lines": [...]}
 // where each line is {"text", "conf", "x0", "y0", "x1", "y1", "lx", "ly", "rx", "ry"} in normalized coords,
@@ -28,7 +28,9 @@ struct Record: Codable {
 
 // x position of the book's spine: the vertical strip crossed by the fewest text lines,
 // with real text on both sides (so the empty desk beside the book doesn't count).
-// Returns nil for a single page.
+// A line only "crosses" if it reaches 1% past the strip on both sides: lines curling
+// into the spine often overshoot it slightly. Returns nil for a single page.
+// Keep in sync with find_gutter() in book2audio.py.
 func findGutter(_ lines: [Line]) -> Double? {
     let long = lines.filter { $0.text.count > 15 }
     guard long.count >= 6 else { return nil }
@@ -36,8 +38,8 @@ func findGutter(_ lines: [Line]) -> Double? {
     for i in 20...80 {
         let x = Double(i) / 100
         let left = long.filter { ($0.x0 + $0.x1) / 2 < x }.count
-        if left < long.count / 5 || long.count - left < long.count / 5 { continue }
-        counts.append((x, lines.filter { $0.x0 < x && x < $0.x1 }.count))
+        if left < 3 || long.count - left < 3 { continue }
+        counts.append((x, lines.filter { $0.x0 < x - 0.01 && x + 0.01 < $0.x1 }.count))
     }
     guard let minN = counts.map({ $0.n }).min(), minN <= max(1, lines.count / 20) else { return nil }
     let xs = counts.filter { $0.n == minN }.map { $0.x }
@@ -114,32 +116,37 @@ func ocrImage(_ path: String) {
     recognizeAllPasses(img, orientation: orient, source: path, time: nil).forEach(emit)
 }
 
-func ocrVideo(_ path: String, every: Double) {
+// Vision serializes work within one process, so callers parallelize by running several
+// processes, each taking every Nth frame (--shard k/N).
+func ocrVideo(_ path: String, every: Double, shard: Int, of shards: Int) {
     let asset = AVURLAsset(url: URL(fileURLWithPath: path))
     let gen = AVAssetImageGenerator(asset: asset)
     gen.appliesPreferredTrackTransform = true  // handles portrait/landscape phone video
     gen.requestedTimeToleranceBefore = .zero
     gen.requestedTimeToleranceAfter = .zero
     let duration = CMTimeGetSeconds(asset.duration)
-    var t = 0.0
-    while t < duration {
-        let time = CMTime(seconds: t, preferredTimescale: 600)
-        if let img = try? gen.copyCGImage(at: time, actualTime: nil) {
+    var i = shard
+    while Double(i) * every < duration {
+        let t = Double(i) * every
+        if let img = try? gen.copyCGImage(at: CMTime(seconds: t, preferredTimescale: 600), actualTime: nil) {
             recognizeAllPasses(img, orientation: .up, source: path, time: t).forEach(emit)
         }
-        t += every
+        i += shards
     }
 }
 
 var args = Array(CommandLine.arguments.dropFirst())
+func option(_ name: String) -> String? {
+    guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
+    let v = args[i + 1]
+    args.removeSubrange(i...(i + 1))
+    return v
+}
 if args.first == "--video" {
     args.removeFirst()
-    var every = 0.5
-    if let i = args.firstIndex(of: "--every"), i + 1 < args.count {
-        every = Double(args[i + 1]) ?? every
-        args.removeSubrange(i...(i + 1))
-    }
-    for p in args { ocrVideo(p, every: every) }
+    let every = option("--every").flatMap(Double.init) ?? 0.5
+    let shard = (option("--shard") ?? "0/1").split(separator: "/").compactMap { Int($0) }
+    for p in args { ocrVideo(p, every: every, shard: shard[0], of: max(1, shard[1])) }
 } else {
     for p in args { ocrImage(p) }
 }
