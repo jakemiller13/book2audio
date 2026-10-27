@@ -1,0 +1,5 @@
+#!/bin/sh
+# Run book2audio with the project's Python environment (Kokoro voice, etc.).
+DIR="$(cd "$(dirname "$0")" && pwd)"
+[ -x "$DIR/.venv/bin/python" ] || { echo "First run: $DIR/setup.sh" >&2; exit 1; }
+exec "$DIR/.venv/bin/python" "$DIR/book2audio.py" "$@"

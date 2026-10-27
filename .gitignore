@@ -1,0 +1,12 @@
+# Recreated by ./setup.sh
+.venv/
+models/
+ocr
+
+# Generated audio and transcripts (the transcripts are the book's text)
+output/
+voice_samples/
+
+# Python / macOS
+__pycache__/
+.DS_Store
