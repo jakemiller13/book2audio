@@ -60,6 +60,12 @@ ROMAN_MORE = re.compile(r"(\d(?:-[A-Z]\d?)?[a-z]?(?:\s*,\s*|\s+and\s+|\s+or\s+|\
                         r"([IVX]+)(?=[a-z]?(?![A-Za-z]))")
 
 
+# Two capitals are almost always said letter by letter; written as "E M" the voice always does,
+# while "EM" on its own, or at the end of "cryo-EM", can come out as the word "em".
+SPELL_TWO = re.compile(r"(?<![A-Za-z'])(?!(?:OF|IN|ON|AT|TO|BY|OR|AN|AS|IS|IT|IF|NO|SO|UP|US|WE|BE|DO|GO|HE|"
+                       r"ME|MY|OK|II|IV|VI|IX|XI|XV|XX)(?![A-Za-z]))([A-Z])([A-Z])(?![A-Za-z])")
+
+
 def roman(s):
     """'IV' -> 4; None if it isn't a well-formed Roman numeral."""
     values = {"I": 1, "V": 5, "X": 10}
@@ -135,4 +141,5 @@ def speakable_science(text):
                lambda m: " ".join(s for s in (m.group(1), GREEK[m.group(2)], m.group(3)) if s), t)
     t = t.replace("−", "-")                                                     # a minus sign between labels
     t = re.sub(r"(?<=\w)_(?=\w)", " ", t)                                     # k_deg -> "k deg"
+    t = SPELL_TWO.sub(r"\1 \2", t)                                            # cryo-EM -> cryo-E M
     return re.sub(r"\s+", " ", t).strip()
