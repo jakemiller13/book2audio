@@ -2,7 +2,8 @@
 signs, ranges and common abbreviations. Used for papers instead of the book rules."""
 import re
 
-SUPERSCRIPTS = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻", "0123456789+-")
+SUP_DIGITS = "⁰¹²³⁴⁵⁶⁷⁸⁹"   # not one Unicode range: ¹²³ live apart from the rest
+SUPERSCRIPTS = str.maketrans(SUP_DIGITS + "⁺⁻", "0123456789+-")
 MICRO = "[µμu]"
 UNITS = [                                   # (pattern after a number, spoken form)
     (rf"{MICRO}m", "micrometers"), (r"nm", "nanometers"), (r"mm", "millimeters"),
@@ -11,28 +12,71 @@ UNITS = [                                   # (pattern after a number, spoken fo
     (rf"{MICRO}g", "micrograms"), (r"mg", "milligrams"), (r"ng", "nanograms"),
     (r"kDa", "kilodaltons"), (r"Da", "daltons"), (r"kb", "kilobases"), (r"bp", "base pairs"),
     (r"nt", "nucleotides"), (r"hrs?|h", "hours"), (r"min", "minutes"), (r"ms", "milliseconds"),
+    (r"Å", "angstroms"),
 ]
+# single letters need a space after the number: "1990s" stays as it is
+SPACED_UNITS = [(r"M", "molar"), (r"s", "seconds"), (r"L", "liters")]
+PER = {"M": "molar", "s": "second", "h": "hour", "min": "minute"}       # s−1 -> per second
+SLASH_UNITS = [(r"m[lL]", "milliliter"), (rf"{MICRO}[lL]", "microliter"), (r"L", "liter"),   # mg/mL
+               (r"min", "minute"), (r"h", "hour"), (r"s", "second"), (r"kg", "kilogram"), (r"g", "gram")]
+GREEK = {"α": "alpha", "β": "beta", "γ": "gamma", "δ": "delta", "Δ": "delta", "ε": "epsilon",
+         "θ": "theta", "κ": "kappa", "λ": "lambda", "μ": "mu", "π": "pi", "σ": "sigma", "τ": "tau",
+         "φ": "phi", "χ": "chi", "ψ": "psi", "ω": "omega", "Ω": "omega"}
+IONS = {"Zn": "zinc", "Mg": "magnesium", "Mn": "manganese", "Ca": "calcium", "Fe": "iron",
+        "Cu": "copper", "Co": "cobalt", "Ni": "nickel", "Cd": "cadmium", "Na": "sodium",
+        "K": "potassium", "Li": "lithium"}
 ABBREVIATIONS = [
     (r"\bvs\.", "versus"), (r"\be\.g\.,?", "for example,"), (r"\bi\.e\.,?", "that is,"),
     (r"\bFigs\.", "Figures"), (r"\bFig\.?(?=\s*\d)", "Figure"), (r"\bEq\.(?=\s*\d)", "Equation"),
     (r"\b(IC|EC|LD|ED|CC)50\b", lambda m: " ".join(m.group(1)) + " 50"),
-    (r"\bkcat\b", "k cat"),
+    (r"\bkcat\s*/\s*K[Mm]\b", "k cat over K M"), (r"\bkcat\b", "k cat"), (r"\bK[Mm]\b", "K M"),
+    (r"\b(NADP?)\+", r"\1 plus"), (r"\(w/v\)", "(weight per volume)"), (r"\(v/v\)", "(volume per volume)"),
 ]
 
 
+def say_unit(t, pattern, spoken, space=r"\s*"):
+    """'5 mM' -> '5 millimolar'; singular after 1 or an article: '1 hour', 'a 3 kilobase fragment'."""
+    def say(m):
+        one = m.group("n") == "1" or m.group("art")
+        word = spoken[:-1] if one and spoken.endswith("s") else spoken
+        return f"{m.group('art') or ''}{m.group('n')} {word}"
+    return re.sub(rf"(?P<art>\b(?:[Aa]n?|[Tt]he) )?(?P<n>(?<![\w.])\d[\d.,]*?){space}(?:{pattern})(?![A-Za-z])",
+                  say, t)
+
+
 def speakable_science(text):
-    t = text.translate(SUPERSCRIPTS)
-    t = re.sub(r"(?<=\d)\s*[sS]\s*[−-]\s*1\b", " per second", t)                 # 5 s−1
-    t = re.sub(r"(?<=\d)\s*[hH]\s*[−-]\s*1\b", " per hour", t)
+    t = re.sub(r"(?<=\d)\s*[×x]\s*10(?=[⁻^" + SUP_DIGITS + "])", " times 10", text)  # 3.1 × 10³
+    power = lambda m: "10 to the " + m.group(1).translate(SUPERSCRIPTS).replace("-", "minus ").replace("−", "minus ")
+    t = re.sub(rf"\b10(⁻?[{SUP_DIGITS}]+)", power, t)
+    t = re.sub(r"\b10\^([−-]?\d+)", power, t)                                           # 10^-3
+    t = re.sub(r"(?<=[A-Za-zÅ])²(?![⁺⁻])", " squared", t)                               # R², Å²
+    t = re.sub(r"(?<=[A-Za-z])³(?![⁺⁻])", " cubed", t)
+    t = t.translate(SUPERSCRIPTS)
+    for _ in range(3):                                                                  # M−1 s−1
+        t = re.sub(r"(\d|per \w+)\s*(M|s|h|min)\s*[−-]\s*1\b", lambda m: f"{m.group(1)} per {PER[m.group(2)]}", t)
+    t = re.sub(r"\b(" + "|".join(IONS) + r")\d?\+(?![\w+])", lambda m: IONS[m.group(1)], t)   # Zn2+
+    t = re.sub(r"\s*±\s*", " plus or minus ", t)
+    t = re.sub(r"(?<=\d)×-(?=[A-Za-z])", "-", t)                                        # 6×-His
+    t = re.sub(r"\s*×\s*", " times ", t)                                                # 4000 × g
+    t = re.sub(r"\s*°\s*C\b", " degrees Celsius", t)
+    t = re.sub(r"(?<=\d)\s*°", " degrees", t)
     t = re.sub(r"(?<![\w.])[−-](?=\d)", "minus ", t)                             # −80 °C
     t = re.sub(r"\s*<\s*(?=[\d.])", " less than ", t)
     t = re.sub(r"\s*>\s*(?=[\d.])", " greater than ", t)
-    t = re.sub(r"~\s*(?=\d)", "about ", t)
-    t = re.sub(r"(?<=\d)([a-zA-Z]?)\s*[–—]\s*(?=\d)", r"\1 to ", t)             # 10–22, 1a–1g
+    t = re.sub(r"[~∼]\s*(?=\d)", "about ", t)
+    t = re.sub(r"\s*=\s*", " equals ", t)                                       # n = 3
+    t = re.sub(r"\s*•\s*", " with ", t)                                         # enzyme•inhibitor
+    t = re.sub(r"(?<=\d)([a-zA-Z]?)\s*[–—‒]\s*(?=\d)", r"\1 to ", t)            # 10–22, 1a–1g
+    t = re.sub(r"(?<=\d[a-z])\s*[–—-]\s*(?=[a-z]\b)", " to ", t)                # Fig. 1a–c
     for pattern, spoken in UNITS:
-        t = re.sub(rf"(?<=\d)\s*(?:{pattern})(?![A-Za-z])", " " + spoken, t)
-    t = re.sub(r"(?<=\d)\s+M(?![A-Za-z])", " molar", t)          # single letters need a space:
-    t = re.sub(r"(?<=\d)\s+s(?![A-Za-z])", " seconds", t)        # "1990s" stays as it is
+        t = say_unit(t, pattern, spoken)
+    for pattern, spoken in SPACED_UNITS:
+        t = say_unit(t, pattern, spoken, space=r"\s+")
+    for pattern, spoken in SLASH_UNITS:
+        t = re.sub(rf"(?<=[a-z])\s*/\s*(?:{pattern})(?![A-Za-z])", " per " + spoken, t)
     for pattern, spoken in ABBREVIATIONS:
         t = re.sub(pattern, spoken, t)
+    t = re.sub(f"[{''.join(GREEK)}]([A-Za-z0-9])?",                                     # β-sheet, ΔhdaH
+               lambda m: GREEK[m.group()[0]] + (" " + m.group(1) if m.group(1) else ""), t)
+    t = t.replace("−", "-")                                                     # SGGY−304
     return re.sub(r"\s+", " ", t).strip()
