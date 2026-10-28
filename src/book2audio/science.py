@@ -60,8 +60,25 @@ ROMAN_MORE = re.compile(r"(\d(?:-[A-Z]\d?)?[a-z]?(?:\s*,\s*|\s+and\s+|\s+or\s+|\
                         r"([IVX]+)(?=[a-z]?(?![A-Za-z]))")
 
 
-# Two capitals are almost always said letter by letter; written as "E M" the voice always does,
-# while "EM" on its own, or at the end of "cryo-EM", can come out as the word "em".
+# Letters as words the voice always says as that letter ("A" alone is read as "uh", "ay" as "eye")
+LETTER_NAMES = dict(A="eigh", B="bee", C="see", D="dee", E="ee", F="ef", G="gee", H="aitch", I="eye", J="jay",
+                    K="kay", L="ell", M="em", N="en", O="oh", P="pee", Q="cue", R="ar", S="ess", T="tee", U="you",
+                    V="vee", W="double-you", X="ex", Y="why", Z="zee")
+PLURAL_ES = {"H", "S", "X"}
+
+
+def spell_out(token):
+    """'EM' -> 'ee em', 'MGEs' -> 'em gee ees', 'crRNA' -> 'see ar ar en eigh', 'BRCA1' -> 'bee ar see eigh 1'."""
+    base, plural = (token[:-1], True) if re.search(r"[A-Z0-9]s$", token) else (token, False)
+    parts = re.findall(r"\d+|[A-Za-z]", base)
+    words = [p if p.isdigit() else LETTER_NAMES[p.upper()] for p in parts]
+    if plural and words:
+        words[-1] += "es" if parts[-1].upper() in PLURAL_ES else "s"
+    return " ".join(words)
+
+
+# Two capitals are almost always said letter by letter, but "EM" on its own, or at the end of
+# "cryo-EM", can come out as the word "em"; letter names are said the same way every time.
 SPELL_TWO = re.compile(r"(?<![A-Za-z'])(?!(?:OF|IN|ON|AT|TO|BY|OR|AN|AS|IS|IT|IF|NO|SO|UP|US|WE|BE|DO|GO|HE|"
                        r"ME|MY|OK|II|IV|VI|IX|XI|XV|XX)(?![A-Za-z]))([A-Z])([A-Z])(?![A-Za-z])")
 
@@ -141,5 +158,5 @@ def speakable_science(text):
                lambda m: " ".join(s for s in (m.group(1), GREEK[m.group(2)], m.group(3)) if s), t)
     t = t.replace("−", "-")                                                     # a minus sign between labels
     t = re.sub(r"(?<=\w)_(?=\w)", " ", t)                                     # k_deg -> "k deg"
-    t = SPELL_TWO.sub(r"\1 \2", t)                                            # cryo-EM -> cryo-E M
+    t = SPELL_TWO.sub(lambda m: spell_out(m.group()), t)                        # cryo-EM -> cryo-ee em
     return re.sub(r"\s+", " ", t).strip()
