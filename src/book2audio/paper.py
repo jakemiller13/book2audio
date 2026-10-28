@@ -347,6 +347,8 @@ def join_pages(page_md):
             m = MARKER.match(line)
             if m:
                 kind, label, caption = m.group(1), m.group(2), m.group(3)
+                if label.upper() == "IMAGE":
+                    continue               # an unnumbered figure: nothing to match it to
                 image = label.upper().endswith(" IMAGE")
                 key = figure_key(kind, label[:-6].strip() if image else label)
                 fig = figures.setdefault(key, {"key": key, "caption": None, "caption_page": None,
@@ -359,6 +361,8 @@ def join_pages(page_md):
                     fig["caption_at_top"] = first_text
                     flow.append({"type": "marker", "text": key, "page": page_no})
                 continue
+            if re.match(r"^<<?(FIGURE|TABLE)\b", line):
+                continue                   # a marker without a number can't be placed or described
             note_cut = False
             if REFS_MARKER.match(line):
                 kind, text = "refs", ""
@@ -400,6 +404,26 @@ def join_pages(page_md):
     return flow + pending_notes, figures
 
 
+SECTION_NAMES = re.compile(
+    r"(?i)^[\d.\s]*(?:(abstract|summary|graphical abstract|highlights|introduction|background)"
+    r"|(results(?: and discussion)?|discussion|conclusions?|(?:materials and |experimental )?methods|"
+    r"methods and materials|star\W*methods|experimental procedures)"
+    r"|(acknowledge?ments?|author contributions?|funding|competing interests|conflicts? of interest|"
+    r"declaration of interests|data availability(?: statement)?|code availability|supplementary \w+|"
+    r"supporting information|references|additional information|ethics(?: declarations)?|abbreviations|"
+    r"appendix|limitations(?: of the study)?|resource availability))\s*:?$")
+BODY_SECTIONS = {"results", "results and discussion", "discussion", "conclusion", "conclusions", "methods",
+                 "materials and methods", "experimental methods", "methods and materials", "star methods",
+                 "experimental procedures"}
+
+
+def section_kind(title):
+    """A standard section's name in lower case ("results", "materials and methods"), or None for a
+    heading of the paper's own, which inside Results, Discussion or Methods is really a subsection."""
+    m = SECTION_NAMES.match(title.strip())
+    return re.sub(r"star\W*methods", "star methods", m.group(m.lastindex).lower()) if m else None
+
+
 def build_chapters(flow, figures, fallback_title):
     """Chapters for narration: (title, [(kind, text)], [figure keys to follow it]) where kind is
     "para" or "subheading". Top-level sections are chapters. A section that has figures is split
@@ -416,7 +440,13 @@ def build_chapters(flow, figures, fallback_title):
             title = it["text"]
         elif t == "section":
             in_refs = False
-            sections.append({"title": it["text"], "parts": [{"title": None, "items": []}]})
+            kind = section_kind(it["text"])
+            if kind in ("abstract", "introduction") and any(s.get("kind") == kind for s in sections):
+                continue                   # repeated on a page that began without a heading
+            if kind is None and sections[-1].get("kind") in BODY_SECTIONS:
+                sections[-1]["parts"].append({"title": it["text"], "items": []})   # a subsection set as a section
+                continue
+            sections.append({"title": it["text"], "kind": kind, "parts": [{"title": None, "items": []}]})
         elif t == "refs":
             in_refs = True
         elif in_refs and t != "marker":
