@@ -64,6 +64,7 @@ REF_END = re.compile(r"(?i)^(acknowledge?ments?|author contributions?|contributi
                      r"(materials and |online )?methods|figure legends|figures|tables|appendix\b.*|"
                      r"ethics declarations|abbreviations)\s*:?$"
                      r"|^(fig\.?|figure|table)\s*s?\d+\b")
+REF_LIKE = re.compile(r"\b(?:19|20)\d\d[a-z]?\b|\bet al\b|\bdoi\b|\d+\s*[–-]\s*\d+")   # years, page ranges
 CITATION = re.compile(r"\((?=[^()]*\b(?:19|20)\d\d[a-z]?\b)(?=[^()]*[A-Z][a-z])[^()]{0,400}\)"
                       r"|\[\s*\d+(?:\s*[,–-]\s*\d+)*\s*\]")
 LIGATURES = ("", "fi", "fl", "ff", "ffi", "ffl")
@@ -107,10 +108,11 @@ def furniture(pages):
 
 def mark_references(pages, furn):
     """For each page, its text-layer lines that are worth checking (not furniture, not in the
-    reference list), and whether the page is nothing but reference list."""
+    reference list), and whether the page is nothing but reference list. A page after the list
+    whose lines don't look like references (a full-page figure's labels, say) still gets read."""
     in_refs = False
     for p in pages:
-        keep, ref_lines = [], 0
+        keep, ref_lines = [], []
         for line in p["text"].splitlines():
             s = line.strip()
             if not s or norm_line(s) in furn or re.fullmatch(r"[\d\s.]+", s):
@@ -119,12 +121,10 @@ def mark_references(pages, furn):
                 in_refs = True
             elif in_refs and REF_END.match(s):
                 in_refs = False
-            if in_refs:
-                ref_lines += 1
-            else:
-                keep.append(s)
+            (ref_lines if in_refs else keep).append(s)
         p["check_lines"] = keep
-        p["only_references"] = ref_lines > 0 and not keep
+        p["only_references"] = (bool(ref_lines) and not keep
+                                and sum(bool(REF_LIKE.search(l)) for l in ref_lines) >= 0.2 * len(ref_lines))
 
 
 def missing_lines(check_lines, output, threshold=0.5):
@@ -177,13 +177,38 @@ def page_request(page, prev, nxt, note=""):
             f"Text layer of THIS page:\n\n{layer}{note}")
 
 
-def rebuild_pages(pdf_path, pages):
+def cache_dir(pdf_path):
+    """Where a paper's rebuilt pages and figure descriptions are kept, named by the PDF's content."""
+    cache = CACHE_DIR / "papers" / hashlib.sha1(pdf_path.read_bytes()).hexdigest()[:16]
+    cache.mkdir(parents=True, exist_ok=True)
+    return cache
+
+
+PAGE_META = re.compile(r"(?i)^(i can(no|')t|i won't|i will not|i'm sorry|sorry,|as an ai|i am unable|i'm unable|"
+                       r"here is the|here's the)\b")
+
+
+def usable_page(text):
+    """Claude's page, without a code fence if it added one. An empty or chatty reply is an error,
+    so it is retried rather than cached."""
+    text = re.sub(r"^```\w*\n|\n?```$", "", text.strip()).strip()
+    if not text or PAGE_META.match(text):
+        raise RuntimeError(f"unusable reply: {text[:80]!r}")
+    return text
+
+
+def raw_text(page):
+    """A page Claude couldn't rebuild: its text layer as one paragraph, with line-end hyphens
+    rejoined and citation markers removed (a pause after every printed line would be worse)."""
+    text = re.sub(r"([a-z])-\n([a-z])", r"\1\2", "\n".join(page["check_lines"]))
+    return re.sub(r"\s+([.,;:])", r"\1", " ".join(CITATION.sub("", text).split()))
+
+
+def rebuild_pages(cache, pages):
     """Rebuild every page (except pure reference-list pages) as Markdown. Returns
     {page number: markdown}; also warns about lines that may still be missing."""
     furn = furniture(pages)
     mark_references(pages, furn)
-    cache = CACHE_DIR / "papers" / hashlib.sha1(pdf_path.read_bytes()).hexdigest()[:16]
-    cache.mkdir(parents=True, exist_ok=True)
     todo = [i for i, p in enumerate(pages) if not p["only_references"]]
     page_file = lambda page: cache / f"p{page['page']:03d}-{PROMPT_VERSION}.md"
     saved = sum(page_file(pages[i]).exists() for i in todo)
@@ -204,7 +229,7 @@ def rebuild_pages(pdf_path, pages):
         def ask(note=""):
             for attempt in range(2):
                 try:
-                    return claude.ask(PAGE_PROMPT, page_request(page, prev, nxt, note), [page["image"]])
+                    return usable_page(claude.ask(PAGE_PROMPT, page_request(page, prev, nxt, note), [page["image"]]))
                 except Exception as e:
                     error = e
             raise error
@@ -213,7 +238,7 @@ def rebuild_pages(pdf_path, pages):
             out = ask()
         except Exception as e:
             print(f"  page {page['page']}: Claude failed ({e}); using the raw text layer", file=sys.stderr)
-            return page["page"], "\n\n".join(page["check_lines"]), []
+            return page["page"], raw_text(page), []
         gaps = check(out)
         if gaps:
             note = ("\n\nNote: an earlier version of this page seemed to leave out these lines of the text "
@@ -244,6 +269,8 @@ MARKER = re.compile(r"^<<(FIGURE|TABLE)\s+(.+?)\s*(?::\s*(.*?))?\s*>>$")
 MENTION = re.compile(r"\b(Supplementary\s+|Suppl\.\s+|Extended\s+Data\s+)?(Fig(?:ure)?s?\.?|Tables?)\s*"
                      r"((?:S?\d+[A-Za-z]?(?:\s*(?:,|–|—|-|&|and)\s*(?=S?\d))?)+)")
 OPEN_END = re.compile(r"""[.!?:]["”’')\]]*$""")
+CAPTION_LABEL = re.compile(r"^(?:(?:Supplementary|Suppl\.|Extended\s+Data)\s+)?(?:Fig(?:ure)?\.?|Table)\s*"
+                           r"[A-Z]?\d+[A-Za-z]?\s*[.:|]?\s*")   # "Figure 2.", "Extended Data Fig. 3 |"
 
 
 def figure_key(kind, label):
@@ -277,6 +304,13 @@ def join_pages(page_md):
     only a figure) is rejoined, and footnotes wait until the paragraph they interrupt ends.
     Returns (flow, figures)."""
     flow, figures, pending_notes = [], {}, []
+    everything = "\n".join(page_md.values())
+
+    def keeps_hyphen(left, right):
+        """'self-' + 'assembly' across a page break stays 'self-assembly' if the paper writes it
+        that way elsewhere; otherwise it's a word broken at the line end ('identi-' + 'fied')."""
+        w = lambda s: re.search(rf"\b{s}\b", everything)
+        return bool(w(re.escape(f"{left}-{right}")) and not w(re.escape(left + right)))
 
     def last_para():
         return next((it for it in reversed(flow) if it["type"] not in ("marker", "front")), None)
@@ -297,7 +331,7 @@ def join_pages(page_md):
                 if image:
                     fig["image_pages"].append(page_no)
                 elif caption:
-                    fig["caption"] = re.sub(r"^(Fig(?:ure)?\.?|Table)\s*\S+?\s*[.:|]\s*", "", caption).strip()
+                    fig["caption"] = CAPTION_LABEL.sub("", caption).strip()
                     fig["caption_page"] = page_no
                     fig["caption_at_top"] = first_text
                     flow.append({"type": "marker", "text": key, "page": page_no})
@@ -324,7 +358,8 @@ def join_pages(page_md):
             if first_text and kind == "para" and prev and prev["type"] == "para" and prev["page"] != page_no:
                 p = prev["text"]
                 if re.search(r"[a-z]-$", p) and text[:1].islower():
-                    prev["text"], text = p[:-1] + text, None
+                    left, right = re.search(r"(\w+)-$", p).group(1), re.match(r"\w+", text).group()
+                    prev["text"], text = (p if keeps_hyphen(left, right) else p[:-1]) + text, None
                 elif not OPEN_END.search(p) or text[:1].islower():
                     prev["text"], text = p + " " + text, None
                 if text is None:
@@ -357,8 +392,8 @@ def build_chapters(flow, figures, fallback_title):
             sections.append({"title": it["text"], "parts": [{"title": None, "items": []}]})
         elif t == "refs":
             in_refs = True
-        elif in_refs:
-            continue                       # stray reference-list text
+        elif in_refs and t != "marker":
+            continue                       # stray reference-list text (figure legends after it still count)
         elif t == "subsection":
             sections[-1]["parts"].append({"title": it["text"], "items": []})
         else:
@@ -475,7 +510,8 @@ def read_paper(pdf_path, image_dir):
     from .pdf import read_pdf
     info, pages = read_pdf(pdf_path, image_dir, dpi=110)
     print(f"Reading {len(pages)} page(s) with Claude...", file=sys.stderr)
-    page_md = rebuild_pages(pdf_path, pages)
+    cache = cache_dir(pdf_path)
+    page_md = rebuild_pages(cache, pages)
     flow, figures = join_pages(page_md)
     title, chapters, unplaced = build_chapters(flow, figures, info["title"] or pdf_path.stem)
     for key in unplaced:
@@ -483,7 +519,6 @@ def read_paper(pdf_path, image_dir):
     keys = [k for _, _, figs in chapters for k in figs]
     if keys:
         print(f"Describing {len(keys)} figure(s) and table(s)...", file=sys.stderr)
-    cache = CACHE_DIR / "papers" / hashlib.sha1(pdf_path.read_bytes()).hexdigest()[:16]
     descriptions = describe_figures(cache, figures, pages, keys)
     blocks = []
     for name, items, figs in chapters:

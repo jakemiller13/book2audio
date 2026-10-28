@@ -17,6 +17,8 @@ UNITS = [                                   # (pattern after a number, spoken fo
 # single letters need a space after the number: "1990s" stays as it is
 SPACED_UNITS = [(r"M", "molar"), (r"s", "seconds"), (r"L", "liters")]
 PER = {"M": "molar", "s": "second", "h": "hour", "min": "minute"}       # s−1 -> per second
+MICRO_ALONE = {"g": "micrograms", "l": "microliters", "L": "microliters", "m": "micrometers",
+               "M": "micromolar", "s": "microseconds"}                 # a unit with no number: (μg/mL)
 SLASH_UNITS = [(r"m[lL]", "milliliter"), (rf"{MICRO}[lL]", "microliter"), (r"L", "liter"),   # mg/mL
                (r"min", "minute"), (r"h", "hour"), (r"s", "second"), (r"kg", "kilogram"), (r"g", "gram")]
 GREEK = {"α": "alpha", "β": "beta", "γ": "gamma", "δ": "delta", "Δ": "delta", "ε": "epsilon",
@@ -35,7 +37,7 @@ ABBREVIATIONS = [
 ]
 RESPELLINGS = [                             # words the voice says wrong, spelled the way they sound
     (r"ac\(et\)yl", "acetyl"),              # deac(et)ylase: read every letter
-    (r"([A-Z]{2,})acyl", r"\1 ace-il"),     # LGKacyl (a peptide with an acyl group)
+    (r"([A-Z]{2,})acyl", r"\1 ace-il"),     # a peptide named for its acyl group: ABCacyl
     (r"\b([Dd])eacetylase", r"\1e-a-setta-lace"),   # "dee-uh-SET-uh-lay-sus"
     (r"\b([Dd])eacetyl", r"\1e-a-setta-l"),         # deacetylation, deacetylated
     (r"\b([Ee])ukaryot(?=e|ic)", lambda m: ("Y" if m.group(1) == "E" else "y") + "ou-carry-ot"),  # "YOU-carry-otes"
@@ -78,12 +80,13 @@ def speakable_science(text):
     t = re.sub(r"[~∼]\s*(?=\d)", "about ", t)
     t = re.sub(r"\s*=\s*", " equals ", t)                                       # n = 3
     t = re.sub(r"\s*•\s*", " with ", t)                                         # enzyme•inhibitor
-    t = re.sub(r"(?<=\d)([a-zA-Z]?)\s*[–—‒]\s*(?=\d)", r"\1 to ", t)            # 10–22, 1a–1g
+    t = re.sub(r"(?<=\d)([a-zA-Z]?)\s*[–—‒-]\s*(?=\d)", r"\1 to ", t)           # 10–22, 10-20, 1a–1g
     t = re.sub(r"(?<=\d[a-z])\s*[–—-]\s*(?=[a-z]\b)", " to ", t)                # Fig. 1a–c
     for pattern, spoken in UNITS:
         t = say_unit(t, pattern, spoken)
     for pattern, spoken in SPACED_UNITS:
         t = say_unit(t, pattern, spoken, space=r"\s+")
+    t = re.sub(r"(?<!\w)[µμ](g|[lL]|m|M|s)\b", lambda m: MICRO_ALONE[m.group(1)], t)   # (μg/mL)
     for pattern, spoken in SLASH_UNITS:
         t = re.sub(rf"(?<=[a-z])\s*/\s*(?:{pattern})(?![A-Za-z])", " per " + spoken, t)
     for pattern, spoken in ABBREVIATIONS + RESPELLINGS:
@@ -93,7 +96,7 @@ def speakable_science(text):
     t = re.sub(r"(?<![\d.])\d+(?:\.\d+){2,}(?!\d|\.\d)", lambda m: " point ".join(m.group().split(".")), t)  # 9.5.1
     t = re.sub(r"(?<![\d.])(\d*)\.(\d+)(?!\d|\.\d)",
                lambda m: (m.group(1) + " " if m.group(1) else "") + "point " + " ".join(m.group(2)), t)
-    t = re.sub(f"[{''.join(GREEK)}]([A-Za-z0-9])?",                                     # β-sheet, ΔhdaH
-               lambda m: GREEK[m.group()[0]] + (" " + m.group(1) if m.group(1) else ""), t)
-    t = t.replace("−", "-")                                                     # SGGY−304
+    t = re.sub(f"([A-Za-z])?([{''.join(GREEK)}])([A-Za-z0-9])?",                         # β-sheet, TNFα, Gαq
+               lambda m: " ".join(s for s in (m.group(1), GREEK[m.group(2)], m.group(3)) if s), t)
+    t = t.replace("−", "-")                                                     # a minus sign between labels
     return re.sub(r"\s+", " ", t).strip()
