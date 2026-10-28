@@ -1,4 +1,4 @@
-"""Inputs and OCR: collect the photos/videos, run the Apple Vision helper over them in
+"""Inputs and OCR: collect the videos and photos, run the Apple Vision helper over them in
 parallel, and cache the results."""
 import hashlib
 import json

@@ -20,9 +20,9 @@ Proofreading and summaries send the book's text to Claude through your `claude`
 login (Claude Code). Use --no-cleanup --no-summary to keep everything on your Mac.
 
 examples:
-  book2audio ~/Downloads/IMG_1234.MOV
-  book2audio ~/Desktop/chapter32/ --voice george --speak-summary
-  book2audio --summarize "output/My Book - Ch 20-21.md"
+  ./book2audio ~/Downloads/IMG_1234.MOV
+  ./book2audio ~/Desktop/chapter32/ --voice george --speak-summary
+  ./book2audio --summarize "output/My Book - Ch 20-21.md"
 """
 
 

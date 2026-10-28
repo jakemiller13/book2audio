@@ -52,8 +52,8 @@ The results go in `output/`, named from what was read:
 |---|---|
 | `<Book> - Ch 20-21.m4b` | The audiobook, with a chapter marker for each chapter |
 | `<Book> - Ch 20-21.md` | The transcript that was read aloud |
-| `<Book> - Ch 20-21.summary.md` | A one-paragraph summary of each chapter |
-| `<Book> - Ch 20-21.ocr.md` | The transcript before proofreading |
+| `<Book> - Ch 20-21.summary.md` | A one-paragraph summary of each chapter (when summaries are on) |
+| `<Book> - Ch 20-21.ocr.md` | The transcript before proofreading (when proofreading is on) |
 
 ## Usage
 
@@ -82,7 +82,7 @@ If pages are missing between or within recordings, the run prints which page num
 | `--list-voices` | Lists every voice |
 | `--voice-samples` | Writes a short clip of each suggested voice to `voice_samples/` and opens the folder |
 | `--speak-summary` | Also reads each chapter's summary aloud, as a separate "Chapter 20 – Summary" chapter right after it |
-| `--summarize FILE.md` | Writes summaries for an existing transcript, then stops |
+| `--summarize FILE.md` | Writes summaries for an existing transcript (saved next to it as `.summary.md`), then stops |
 | `--no-cleanup` | Skips proofreading |
 | `--no-summary` | Skips the summaries |
 | `-o FILE` | Output file. By default it's named from the contents, e.g. `output/<Book> - Ch 20-21.m4b` |
@@ -97,9 +97,9 @@ Text recognition results are cached in `~/Library/Caches/book2audio`, so running
 Both steps use Claude through the `claude` command (Claude Code) and your existing login, with no extra setup. Both send the book's text to Anthropic.
 
 - **Proofreading:** text recognition makes small mistakes, such as `rn` read as `m` or a dropped quotation mark, and the voice would read them aloud. The transcript goes to Claude in ~3,000-word parts, with instructions to fix recognition errors only, without rewording. If a part comes back more than 10% longer or shorter, it's thrown away and the original text is kept. The unproofread text is saved as `.ocr.md`.
-- **Summaries:** a short paragraph (under about 90 words) per chapter, covering only the text that was read. A chapter the recording started partway through is summarized from the part that was read. With `--speak-summary`, each summary is also read aloud as its own chapter right after the chapter it covers, so you can skip it, or jump back to it before you carry on with the book.
+- **Summaries:** a short paragraph (under about 90 words) per chapter, covering only the text that was read. A chapter the recording started partway through is summarized from the part that was read, and sections too short to summarize (under about 80 words) are left out. With `--speak-summary`, each summary is also read aloud as its own chapter right after the chapter it covers, so you can skip it, or jump back to it before you carry on with the book.
 
-If `claude` isn't installed, book2audio says so and carries on without these steps.
+If `claude` isn't installed, book2audio says so and carries on without these steps. `--speak-summary` and `--summarize` need it, so they stop with a message instead.
 
 ### Voices
 
@@ -111,7 +111,7 @@ There's no speed option: audiobook players do variable speed better, and you can
 
 A page is treated as a chapter opening when it has a "Chapter N" line (or Prologue/Epilogue/Part/Interlude) near the top, an optional title under it, and then a tall blank band before the text starts. That's a common layout; a book that opens chapters differently may need `detect_chapter_opening` in `src/book2audio/layout.py` adjusted.
 
-A recording usually starts partway through a chapter. That opening text gets its own chapter, named from the next chapter's number, e.g. "Chapter 31 (continued)".
+A recording usually starts partway through a chapter. That opening text gets its own chapter, named from the next chapter's number, e.g. "Chapter 31 (continued)", or "Previous chapter (continued)" if no numbered chapter follows.
 
 A blank gap in the middle of a page (a scene break) is not a chapter. It becomes a 1.5-second pause in the audio and a `* * *` line in the transcript. A scene break that falls exactly at a page boundary can't be seen and is read straight through.
 
@@ -167,6 +167,7 @@ book2audio doesn't include any of these in the repository; `setup.sh` downloads 
 | [phonemizer](https://github.com/bootphon/phonemizer) | Pronunciation (used by kokoro-onnx) | GPL-3.0 |
 | [FFmpeg](https://ffmpeg.org) (via Homebrew) | Encoding the `.m4b` | LGPL/GPL |
 | NumPy, soundfile, and their dependencies | Audio arrays, WAV files | BSD/MIT-style |
+| [libsndfile](https://github.com/libsndfile/libsndfile) (bundled with soundfile) | Reading and writing WAV files | LGPL-2.1 |
 
 Apple, Mac, macOS, iPhone, Apple Books and CarPlay are trademarks of Apple Inc. Claude and Claude Code are trademarks of Anthropic. BookPlayer is a third-party app. book2audio is an independent hobby project. It isn't affiliated with, sponsored by, or endorsed by any of these companies or projects.
 
