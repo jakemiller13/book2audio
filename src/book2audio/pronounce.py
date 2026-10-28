@@ -90,12 +90,12 @@ class Pronouncer:
                 self.ipa[word] = sounds
             self.source[word] = ("Claude", sounds)
         for word, sounds, prefix in sorted(overrides, key=lambda e: -len(e[0])):   # longest first:
-            self.source[word + ("*" if prefix else "")] = ("your list", sounds)     # deacetylase* before deacetyl*
             shadowed = [w for w in claude_list if (w.lower().startswith(word.lower()) if prefix else w.lower() == word.lower())]
-            for w in shadowed:                 # Claude's entries your rule replaces
+            for w in shadowed:                 # Claude's entries your rule replaces       (deacetylase* before deacetyl*)
                 self.ipa.pop(w, None)
                 self.source.pop(w, None)
                 claudes = [c for c in claudes if c[0] != w]
+            self.source[word + ("*" if prefix else "")] = ("your list", sounds)
             if sounds.startswith("/"):
                 self.ipa[word] = sounds.strip("/")
             else:
