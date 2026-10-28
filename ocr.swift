@@ -86,7 +86,7 @@ func recognizeAllPasses(_ image: CGImage, orientation: CGImagePropertyOrientatio
         }
         out.append(Record(source: source, time: time, width: w, height: h, pass: name, crop: [a, b], lines: lines))
     }
-    // The fast recognizer occasionally finds short lines (a lone "gods.") that the accurate one skips.
+    // The fast recognizer occasionally finds short lines (a lone "end.") that the accurate one skips.
     out.append(Record(source: source, time: time, width: w, height: h, pass: "fast",
                       lines: recognize(upright, orientation: .up, level: .fast)))
     return out

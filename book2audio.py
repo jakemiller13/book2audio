@@ -241,7 +241,7 @@ def drop_overlaps(lines):
 
 
 def gap_fillers(fast, lines, lo, hi):
-    """Lines only the fast recognizer found (e.g. a lone "gods." the accurate pass skipped).
+    """Lines only the fast recognizer found (e.g. a lone "end." the accurate pass skipped).
     Fast-pass coordinates are offset from the accurate ones, so we match lines by text and
     slot each unmatched fast line between the accurate lines its neighbours matched."""
     import difflib
@@ -453,7 +453,7 @@ def norm(t):
 
 
 def is_running_head(text, heads):
-    """Exact or close match: OCR misreads heads ("Christopner noocchio")."""
+    """Exact or close match: OCR misreads heads ("Moby Dlck" for "Moby Dick")."""
     import difflib
     n = norm(text)
     return n in heads or any(difflib.SequenceMatcher(None, n, h).ratio() > 0.75 for h in heads)
@@ -604,8 +604,8 @@ def clean_line(t):
 
 
 def sentence_case_lead_in(t):
-    """Chapters often open in small caps: 'THEY FORCED ME TO my knees' -> 'They forced me to my knees',
-    '"HOLD ON!" OTAVIA GROWLED, slamming' -> '"Hold on!" otavia growled, slamming'."""
+    """Chapters often open in small caps: 'IT WAS THE BEST of times' -> 'It was the best of times',
+    '"HOLD ON!" ALICE CRIED, running' -> '"Hold on!" alice cried, running' (names lose their capital)."""
     t = t.strip()
     m = re.match(r"""^((?:["']?[A-Z][A-Z'!?,.;:]*["']?\s+)*["']?[A-Z][A-Z'!?,.;:]+["']?)(?=\s+[a-z])""", t)
     if not m or sum(c.isalpha() for c in m.group(1)) < 4:
@@ -784,7 +784,7 @@ def sections(blocks):
 def speakable(text):
     """Small fixes that make neural TTS read more naturally."""
     t = re.sub(r"\s*\.\s*\.\s*\.", "…", text)                 # ". . ." -> ellipsis
-    # ALL-CAPS names (MINOS) are otherwise spelled out letter by letter
+    # ALL-CAPS names (ZEUS) are otherwise spelled out letter by letter
     t = re.sub(r"\b([A-Z]{3,})\b", lambda m: m.group(1) if re.fullmatch(r"[IVXLC]+", m.group(1))
                else m.group(1).capitalize(), t)
     return t
