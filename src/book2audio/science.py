@@ -30,6 +30,7 @@ ABBREVIATIONS = [
     (r"\bFigs\.", "Figures"), (r"\bFig\.?(?=\s*\d)", "Figure"), (r"\bEq\.(?=\s*\d)", "Equation"),
     (r"\b(IC|EC|LD|ED|CC)50\b", lambda m: " ".join(m.group(1)) + " 50"),
     (r"\bkcat\s*/\s*K[Mm]\b", "k cat over K M"), (r"\bkcat\b", "k cat"), (r"\bK[Mm]\b", "K M"),
+    (r"\b([A-Z])\.\s+(?=[a-z]{3,})", r"\1 "), (r"\bspp?\.", "species"),          # E. coli, sp.
     (r"\b(NADP?)\+", r"\1 plus"), (r"\(w/v\)", "(weight per volume)"), (r"\(v/v\)", "(volume per volume)"),
 ]
 
@@ -76,6 +77,11 @@ def speakable_science(text):
         t = re.sub(rf"(?<=[a-z])\s*/\s*(?:{pattern})(?![A-Za-z])", " per " + spoken, t)
     for pattern, spoken in ABBREVIATIONS:
         t = re.sub(pattern, spoken, t)
+    # Decimals written out: the pronunciation step can take a decimal point for a full stop
+    # ("3.1" -> "three. one", with a pause), depending on the rest of the sentence.
+    t = re.sub(r"(?<![\d.])\d+(?:\.\d+){2,}(?!\d|\.\d)", lambda m: " point ".join(m.group().split(".")), t)  # 9.5.1
+    t = re.sub(r"(?<![\d.])(\d*)\.(\d+)(?!\d|\.\d)",
+               lambda m: (m.group(1) + " " if m.group(1) else "") + "point " + " ".join(m.group(2)), t)
     t = re.sub(f"[{''.join(GREEK)}]([A-Za-z0-9])?",                                     # β-sheet, ΔhdaH
                lambda m: GREEK[m.group()[0]] + (" " + m.group(1) if m.group(1) else ""), t)
     t = t.replace("−", "-")                                                     # SGGY−304
