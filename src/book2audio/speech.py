@@ -97,7 +97,7 @@ def quiet_stderr():
 
 
 class KokoroVoice:
-    def __init__(self, voice):
+    def __init__(self, voice, normalize=None):
         import espeakng_loader
         if len(espeakng_loader.get_data_path()) >= 160:  # espeak-ng's fixed path buffer
             sys.exit(f"Kokoro can't load its pronunciation data because the folder path is too long:\n"
@@ -109,11 +109,12 @@ class KokoroVoice:
         from kokoro_onnx import Kokoro
         self.k = Kokoro(str(MODEL_FILE), str(VOICES_FILE))
         self.voice = voice
+        self.normalize = normalize or speakable
         self.lang = "en-gb" if voice[:1] == "b" else "en-us"
         self.rate = 24000
 
     def speak(self, text):
-        samples, self.rate = self.k.create(speakable(text), voice=self.voice, lang=self.lang)
+        samples, self.rate = self.k.create(self.normalize(text), voice=self.voice, lang=self.lang)
         return np.asarray(samples, dtype=np.float32)
 
     def silence(self, seconds):
@@ -160,7 +161,7 @@ def narration_plan(blocks, summaries):
     return plan
 
 
-def synthesize(blocks, out_path, voice, tags, summaries=None):
+def synthesize(blocks, out_path, voice, tags, summaries=None, normalize=None):
     """Narrate the blocks into an .m4b at out_path. Returns [(chapter title, start, end)]."""
     plan = narration_plan(blocks, summaries)
     total_words = sum(len(p.split()) for _, _, paras in plan for p in paras)
@@ -175,7 +176,7 @@ def synthesize(blocks, out_path, voice, tags, summaries=None):
         eta = (time.time() - started) * (1 - frac) / max(frac, 1e-6)
         print(f"\r  {frac:4.0%} spoken, about {eta / 60:.0f} min left   ", end="", file=sys.stderr, flush=True)
 
-    engine = KokoroVoice(voice)
+    engine = KokoroVoice(voice, normalize)
     with tempfile.TemporaryDirectory() as tmp:
         files, chapters, t = [], [], 0.0
         for i, (title, heading, paras) in enumerate(plan):
