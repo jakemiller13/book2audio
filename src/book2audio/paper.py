@@ -185,16 +185,18 @@ def rebuild_pages(pdf_path, pages):
     cache = CACHE_DIR / "papers" / hashlib.sha1(pdf_path.read_bytes()).hexdigest()[:16]
     cache.mkdir(parents=True, exist_ok=True)
     todo = [i for i, p in enumerate(pages) if not p["only_references"]]
+    page_file = lambda page: cache / f"p{page['page']:03d}-{PROMPT_VERSION}.md"
+    saved = sum(page_file(pages[i]).exists() for i in todo)
     skipped = len(pages) - len(todo)
-    print(f"  {len(todo)} page(s) to rebuild" + (f", {skipped} reference-list page(s) skipped" if skipped else ""),
-          file=sys.stderr)
+    print(f"  {len(todo) - saved} page(s) to rebuild" + (f", {saved} saved from an earlier run" if saved else "")
+          + (f", {skipped} reference-list page(s) skipped" if skipped else ""), file=sys.stderr)
 
     def one(i):
         page = pages[i]
         prev = pages[i - 1] if i > 0 else None
         nxt = pages[i + 1] if i + 1 < len(pages) else None
         check = (lambda text: missing_lines(page["check_lines"], text)) if page["text"].strip() else (lambda text: [])
-        cached = cache / f"p{page['page']:03d}-{PROMPT_VERSION}.md"
+        cached = page_file(page)
         if cached.exists():
             out = cached.read_text()
             return page["page"], out, check(out)
@@ -472,7 +474,7 @@ def read_paper(pdf_path, image_dir):
     """PDF -> (title, author, blocks) ready for narration, with figure and table chapters."""
     from .pdf import read_pdf
     info, pages = read_pdf(pdf_path, image_dir, dpi=110)
-    print(f"Rebuilding {len(pages)} page(s) with Claude...", file=sys.stderr)
+    print(f"Reading {len(pages)} page(s) with Claude...", file=sys.stderr)
     page_md = rebuild_pages(pdf_path, pages)
     flow, figures = join_pages(page_md)
     title, chapters, unplaced = build_chapters(flow, figures, info["title"] or pdf_path.stem)

@@ -3,9 +3,10 @@ import argparse
 import re
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
-from . import ROOT, capture, claude, layout, ordering, speech, text
+from . import ROOT, capture, claude, layout, ordering, paper, science, speech, text
 
 USAGE = """book2audio INPUT [INPUT ...] [options]
        book2audio --summarize TRANSCRIPT.md
@@ -64,6 +65,17 @@ def parse_args():
         ap.error("--summarize takes a transcript on its own, without other inputs")
     if not (args.inputs or args.summarize or args.list_voices or args.voice_samples):
         ap.error("give at least one photo, folder or video (see --help)")
+    args.paper = None
+    if any(Path(a).suffix.lower() == ".pdf" for a in args.inputs):
+        if len(args.inputs) > 1:
+            ap.error("give a paper (.pdf) on its own: one paper per run, without photos or videos")
+        if args.no_cleanup:
+            ap.error("papers need Claude to read the pages, so --no-cleanup doesn't apply to them")
+        if args.speak_summary:
+            ap.error("papers have no chapter summaries (the abstract is read instead)")
+        args.paper = Path(args.inputs[0]).expanduser()
+        if not args.paper.is_file():
+            ap.error(f"not found: {args.inputs[0]}")
     return args
 
 
@@ -96,6 +108,8 @@ def main():
         return speech.write_voice_samples()
 
     voice = speech.resolve_voice(args.voice)   # check before the slow steps
+    if args.paper:
+        return paper_audiobook(args, voice)
     use_claude = not (args.no_cleanup and args.no_summary)
     if use_claude and not claude.available():
         if args.speak_summary:
@@ -124,12 +138,7 @@ def main():
 
     blocks = text.label_continued(text.build_text(pages))
     contents = text.describe_contents(blocks, pages)
-    if args.output:
-        out = Path(args.output).expanduser()
-    else:
-        name = re.sub(r'[/:\\]', "-", f"{title} - {contents}" if title else contents)
-        out = ROOT / "output" / f"{name}.m4b"
-    out.parent.mkdir(parents=True, exist_ok=True)
+    out = output_path(args, f"{title} - {contents}" if title else contents)
     if title or author:
         print(f"Book: {title or '?'} by {author or '?'}", file=sys.stderr)
 
@@ -158,6 +167,47 @@ def main():
     tags = {"title": f"{title} - {contents}" if title else out.stem, "album": title or out.stem,
             "artist": author, "album_artist": author}
     chapters = speech.synthesize(blocks, out, voice, tags, summaries if args.speak_summary else None)
+    report_audio(out, chapters)
+
+
+def paper_audiobook(args, voice):
+    """A scientific paper (PDF): Claude rebuilds each page and describes the figures and tables,
+    then the voice reads it with the pronunciation rules for scientific notation."""
+    if not claude.available():
+        sys.exit("Papers need the `claude` command (Claude Code), which rebuilds each page and "
+                 "describes the figures. Install it and log in first.")
+    with tempfile.TemporaryDirectory() as tmp:   # page images, needed only while Claude reads them
+        title, author, blocks = paper.read_paper(args.paper, Path(tmp))
+    title, author = args.title or title, args.author or author
+    out = output_path(args, title)
+    print(f"Paper: {title}", file=sys.stderr)
+    md = out.with_suffix(".md")
+    md.write_text(text.blocks_to_markdown(blocks))
+    print(f"Transcript: {md}", file=sys.stderr)
+    print(claude.usage_report(), file=sys.stderr)
+    if args.text_only:
+        return
+
+    print(f"Synthesizing speech ({voice})...", file=sys.stderr)
+    tags = {"title": title, "album": title, "artist": author, "album_artist": author}
+    chapters = speech.synthesize(blocks, out, voice, tags, normalize=science.speakable_science)
+    report_audio(out, chapters)
+
+
+def output_path(args, name):
+    """-o, or output/<name>.m4b (shortened at a word if very long, as paper titles can be)."""
+    if args.output:
+        out = Path(args.output).expanduser()
+    else:
+        name = re.sub(r'[/:\\]', "-", name).strip()
+        if len(name) > 120:
+            name = name[:120].rsplit(" ", 1)[0].rstrip(" ,;-")
+        out = ROOT / "output" / f"{name}.m4b"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    return out
+
+
+def report_audio(out, chapters):
     print(f"Audio: {out}  ({chapters[-1][2] / 60:.0f} min)", file=sys.stderr)
     for name, start, _ in chapters:
         print(f"  {int(start // 60):3d}:{int(start % 60):02d}  {name}", file=sys.stderr)
