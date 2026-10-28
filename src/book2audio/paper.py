@@ -275,6 +275,8 @@ MENTION = re.compile(r"\b(Supplementary\s+|Suppl\.\s+|Extended\s+Data\s+)?(Fig(?
 OPEN_END = re.compile(r"""[.!?:]["”’')\]]*$""")
 SOURCE_NOTE = re.compile(r"(?i)^(?:Supplementa(?:l|ry)\s+)?(?:Figure|Fig\.?|Table)\s*S?\d+[A-Za-z]?\s*[–—-]?\s*"
                          r"source\s+(?:data|code)\b")   # "Figure 1 – source data 2. ... [file.xlsx]"
+SIDEBAR_LABEL = re.compile(r"(?i)^(citation|editor|received|accepted|published( online)?|data availability"
+                           r"( statement)?|funding|competing interests|conflicts? of interest)\s*:")
 CAPTION_LABEL = re.compile(r"^(?:(?:Supplementary|Suppl\.|Extended\s+Data)\s+)?(?:Fig(?:ure)?\.?|Table)\s*"
                            r"[A-Z]?\d+[A-Za-z]?\s*[.:|]?\s*")   # "Figure 2.", "Extended Data Fig. 3 |"
 
@@ -321,6 +323,14 @@ def join_pages(page_md):
     def last_para():
         return next((it for it in reversed(flow) if it["type"] not in ("marker", "front")), None)
 
+    def cut_para(prev):
+        """The paragraph a lowercase page start continues: usually the last one, but if that one
+        ended cleanly, an earlier one on the same page that was cut off (a sidebar beside it)."""
+        if not OPEN_END.search(prev["text"]):
+            return prev
+        same_page = [it for it in flow if it["page"] == prev["page"] and it["type"] in ("para", "front")]
+        return next((it for it in reversed(same_page) if not OPEN_END.search(it["text"])), prev)
+
     note_cut = False                       # a dropped note ended mid-sentence: it goes on next page
     for page_no in sorted(page_md):
         first_text = True
@@ -360,8 +370,9 @@ def join_pages(page_md):
                 kind, text = "subsection", line[4:].strip()
             elif line.startswith("#"):
                 kind, text = "subheading", line.lstrip("#").strip()
-            elif line.startswith("Affiliations: "):
+            elif line.startswith("Affiliations: ") or (page_no <= 2 and SIDEBAR_LABEL.match(line)):
                 flow.append({"type": "front", "text": line, "page": page_no})
+                first_text = False
                 continue
             elif line.startswith("Footnote: "):
                 pending_notes.append({"type": "para", "text": line, "page": page_no})
@@ -369,7 +380,9 @@ def join_pages(page_md):
             else:
                 kind, text = "para", re.sub(r"^\[(Equation[^\]]*)\]$", r"\1", line)
             prev = last_para()
-            if first_text and kind == "para" and prev and prev["type"] == "para" and prev["page"] != page_no:
+            if first_text and kind == "para" and prev and text[:1].islower():
+                prev = cut_para(prev)
+            if first_text and kind == "para" and prev and prev["type"] in ("para", "front") and prev["page"] != page_no:
                 p = prev["text"]
                 if re.search(r"[a-z]-$", p) and text[:1].islower():
                     left, right = re.search(r"(\w+)-$", p).group(1), re.match(r"\w+", text).group()
