@@ -2,6 +2,7 @@
 .venv/
 models/
 ocr
+pdfpages
 
 # Generated audio and transcripts (the transcripts are the book's text)
 output/

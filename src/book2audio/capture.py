@@ -37,13 +37,17 @@ def collect_inputs(args):
     return paths
 
 
-def ensure_ocr_binary():
-    """Compile the Swift OCR helper if it's missing or older than its source."""
-    if not OCR_BIN.exists() or OCR_BIN.stat().st_mtime < OCR_SRC.stat().st_mtime:
-        print("Compiling OCR helper...", file=sys.stderr)
-        if subprocess.run(["swiftc", "-O", "-suppress-warnings", str(OCR_SRC), "-o", str(OCR_BIN)]).returncode:
-            sys.exit("Couldn't compile the OCR helper. Install the Xcode Command Line Tools "
+def ensure_helper(src, binary, name):
+    """Compile a Swift helper if it's missing or older than its source."""
+    if not binary.exists() or binary.stat().st_mtime < src.stat().st_mtime:
+        print(f"Compiling {name} helper...", file=sys.stderr)
+        if subprocess.run(["swiftc", "-O", "-suppress-warnings", str(src), "-o", str(binary)]).returncode:
+            sys.exit(f"Couldn't compile the {name} helper. Install the Xcode Command Line Tools "
                      "(xcode-select --install) and run ./setup.sh again.")
+
+
+def ensure_ocr_binary():
+    ensure_helper(OCR_SRC, OCR_BIN, "OCR")
 
 
 def run_ocr(paths, video_every):

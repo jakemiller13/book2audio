@@ -55,9 +55,10 @@ done <<EOF
 bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d voices-v1.0.bin
 EOF
 
-# --- OCR helper
-echo "Compiling OCR helper..."
+# --- OCR and PDF helpers
+echo "Compiling OCR and PDF helpers..."
 swiftc -O -suppress-warnings src/book2audio/ocr.swift -o ocr
+swiftc -O -suppress-warnings src/book2audio/pdf.swift -o pdfpages
 
 ./book2audio --help >/dev/null
 command -v claude >/dev/null ||
