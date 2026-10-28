@@ -417,12 +417,11 @@ different page from its caption, and the image may not carry its number, so matc
 caption by content and panel letters.
 
 Describe what it shows. For a figure: panel by panel if it has panels, say what kind of chart or
-image it is, what is plotted against what or what is pictured, the main groups or conditions, and
-the key patterns, trends or values a reader would take away. For a table: what the rows and
-columns are, and the most important entries or comparisons. Moderate detail: enough to picture it
-and get its point, not every data point, label or cell. Don't restate the caption, and don't claim
-anything the image and caption don't support. Plain sentences, no Markdown, no heading, roughly
-80 to 200 words. Return only the description."""
+image it is, what is plotted against what or what is pictured, and the main pattern or result.
+For a table: what the rows and columns are, and the main comparison. Enough to picture it and get
+its point; leave out individual data points, labels and cells, and give at most one or two key
+numbers. Don't restate the caption, and don't claim anything the image and caption don't support.
+Plain sentences, no Markdown, no heading, 100 to 150 words. Return only the description."""
 
 FIGURE_VERSION = hashlib.sha1(FIGURE_PROMPT.encode()).hexdigest()[:8]
 META_REPLY = re.compile(r"(?i)^(understood|sure|okay|ok|certainly|i can(no|')t|i won't|i will not|i'm sorry|sorry|"
