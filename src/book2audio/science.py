@@ -44,6 +44,7 @@ RESPELLINGS = [                             # words the voice says wrong, spelle
     (r"\b([Pp])rokaryot(?=e|ic)", r"\1ro-carry-ot"),                                              # "PRO-carry-otes"
     (r"\b([Ff])ibrin", r"\1ye-brin"),       # fibrin, fibrinolysis: "FYE-brin", not "FIB-rin"
     (r"\b([Ss])tochast", r"\1tokast"),      # stochastic: "stuh-KAS-tic", not "stuh-CHAS-tic"
+    (r"\b([Ll])ysis\b", r"\1ye-sis"),       # lysis on its own: "LYE-sis", not "LYE-seez"
     (r"\b([Dd])e(?=a(?:cyl|cetyl|mid|min)|lactyl)", r"\1e-"),   # deacylase: "dee-ACE...", not "dee-sil..."
     (r"(?<=cyl|tyl)ase", "ace"),            # -ases with an s sound: "dee-ace-il-ay-sus"
     (r"\b([Aa])cyl", lambda m: m.group(1) + "ce-il"),   # acyl: "ACE-il", not "a-KILL"
