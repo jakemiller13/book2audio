@@ -51,7 +51,9 @@ EOF
 
 # --- OCR helper
 echo "Compiling OCR helper..."
-swiftc -O -suppress-warnings ocr.swift -o ocr
+swiftc -O -suppress-warnings src/book2audio/ocr.swift -o ocr
 
 ./book2audio --help >/dev/null
+command -v claude >/dev/null ||
+  echo "Note: Claude Code (the \`claude\` command) isn't installed, so runs will skip proofreading and summaries."
 echo "Ready. Hear the voices with:  ./book2audio --voice-samples"
