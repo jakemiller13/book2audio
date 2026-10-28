@@ -33,6 +33,13 @@ ABBREVIATIONS = [
     (r"\b([A-Z])\.\s+(?=[a-z]{3,})", r"\1 "), (r"\bspp?\.", "species"),          # E. coli, sp.
     (r"\b(NADP?)\+", r"\1 plus"), (r"\(w/v\)", "(weight per volume)"), (r"\(v/v\)", "(volume per volume)"),
 ]
+RESPELLINGS = [                             # words the voice says wrong, spelled the way they sound
+    (r"ac\(et\)yl", "acetyl"),              # deac(et)ylase: read every letter
+    (r"([A-Z]{2,})acyl", r"\1 ace-il"),     # LGKacyl (a peptide with an acyl group)
+    (r"\b([Dd])e(?=a(?:cyl|cetyl|mid|min)|lactyl)", r"\1e-"),   # deacylase: "dee-ACE...", not "dee-sil..."
+    (r"(?<=cyl|tyl)ase", "ace"),            # -ases with an s sound: "dee-ace-il-ay-sus"
+    (r"\b([Aa])cyl", lambda m: m.group(1) + "ce-il"),   # acyl: "ACE-il", not "a-KILL"
+]
 
 
 def say_unit(t, pattern, spoken, space=r"\s*"):
@@ -75,7 +82,7 @@ def speakable_science(text):
         t = say_unit(t, pattern, spoken, space=r"\s+")
     for pattern, spoken in SLASH_UNITS:
         t = re.sub(rf"(?<=[a-z])\s*/\s*(?:{pattern})(?![A-Za-z])", " per " + spoken, t)
-    for pattern, spoken in ABBREVIATIONS:
+    for pattern, spoken in ABBREVIATIONS + RESPELLINGS:
         t = re.sub(pattern, spoken, t)
     # Decimals written out: the pronunciation step can take a decimal point for a full stop
     # ("3.1" -> "three. one", with a pause), depending on the rest of the sentence.
