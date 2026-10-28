@@ -2,14 +2,16 @@
 
 Record a video of yourself turning a book's pages, and book2audio turns it into an audiobook with chapter markers to listen to on your phone. Photos and screenshots of pages work too. It also writes a transcript and a one-paragraph summary of each chapter, so you can catch up after a few days away from the book.
 
+**New, in beta:** it also reads scientific papers. Give it a paper's PDF and you get an audiobook with a chapter per section, equations put into words, and each figure and table described in its own chapter. See [Scientific papers (beta)](#scientific-papers-beta).
+
 ## Use it responsibly
 
 book2audio is a personal hobby project for listening to books you could otherwise read yourself.
 
-- **Only use it on books you have the right to copy for yourself:** books you own, books in the public domain, or your own writing.
-- **Keep what it makes to yourself.** The audiobook, transcript and summaries are copies of the book. Don't share, upload, post, or sell them.
-- It only works from recordings and images of pages: video, photos or screenshots. It doesn't open e-book, PDF or audiobook files, and it doesn't remove copy protection from anything.
-- Text recognition and the voice run on your Mac. Proofreading and summaries send the book's text to Claude (see [Proofreading and summaries](#proofreading-and-summaries)); turn them off with `--no-cleanup --no-summary` to keep everything on your Mac.
+- **Only use it on books you have the right to copy for yourself:** books you own, books in the public domain, or your own writing. For papers: open-access papers, or papers you have access to.
+- **Keep what it makes to yourself.** The audiobook, transcript and summaries are copies of the book or paper. Don't share, upload, post, or sell them.
+- Books work from recordings and images of pages: video, photos or screenshots. Papers work from their PDF. It doesn't open e-book or audiobook files, and it doesn't remove copy protection from anything.
+- Text recognition and the voice run on your Mac. Proofreading and summaries send the book's text to Claude (see [Proofreading and summaries](#proofreading-and-summaries)); turn them off with `--no-cleanup --no-summary` to keep everything on your Mac. Papers always go to Claude, page images included, so don't use it on anything confidential, such as a manuscript you're peer reviewing.
 
 This isn't legal advice. Copyright rules differ between countries, and you're responsible for how you use the tool.
 
@@ -20,7 +22,7 @@ This isn't legal advice. Copyright rules differ between countries, and you're re
 - Python 3.12 or 3.13 (the voice packages don't support 3.14 yet). If you don't have one: `brew install python@3.13`. `setup.sh` finds it even if your default `python3` is a different version.
 - [Homebrew](https://brew.sh), or ffmpeg already installed.
 - About 1 GB of free disk space (the voice model is ~340 MB).
-- For proofreading and summaries: [Claude Code](https://claude.com/claude-code) (the `claude` command), logged in to your Claude account. Without it, book2audio still works and skips those two steps.
+- For proofreading and summaries: [Claude Code](https://claude.com/claude-code) (the `claude` command), logged in to your Claude account. Without it, book2audio still works on books and skips those two steps. Papers need it.
 
 ## Install
 
@@ -30,12 +32,22 @@ cd book2audio
 ./setup.sh
 ```
 
+To try scientific papers while they're in beta, use the `feature/papers` branch instead:
+
+```sh
+git clone -b feature/papers https://github.com/jakemiller13/book2audio.git
+cd book2audio
+./setup.sh
+```
+
+If you already have book2audio, switch your copy over with `git fetch origin && git checkout feature/papers && ./setup.sh`. Switch back with `git checkout main && ./setup.sh`.
+
 `setup.sh` checks the requirements and tells you what's missing. It then installs everything inside this folder:
 
 - a Python environment in `.venv`, with the pinned packages from `requirements.txt`
 - the Kokoro voice model in `models/`, checked against known checksums
 - ffmpeg, with Homebrew, if it isn't installed already
-- the text recognition helper, compiled from `src/book2audio/ocr.swift`
+- the text recognition helper, compiled from `src/book2audio/ocr.swift`, and the PDF helper, compiled from `src/book2audio/pdf.swift`
 
 It's safe to run again at any time, for example after moving the folder or pulling an update. Keep the folder at a normal-length path such as `~/book2audio`: the voice's pronunciation library can't load from a very deeply nested folder, and `setup.sh` tells you if that's the case.
 
@@ -44,6 +56,7 @@ It's safe to run again at any time, for example after moving the folder or pulli
 ```sh
 ./book2audio --voice-samples              # optional: hear the voices
 ./book2audio ~/Downloads/IMG_1234.MOV     # a video of you turning the pages
+./book2audio ~/Downloads/paper.pdf        # a scientific paper (beta)
 ```
 
 The results go in `output/`, named from what was read:
@@ -54,6 +67,7 @@ The results go in `output/`, named from what was read:
 | `<Book> - Ch 20-21.md` | The transcript that was read aloud |
 | `<Book> - Ch 20-21.summary.md` | A one-paragraph summary of each chapter (when summaries are on) |
 | `<Book> - Ch 20-21.ocr.md` | The transcript before proofreading (when proofreading is on) |
+| `<Paper title>.m4b`, `<Paper title>.md` | For a paper: the audiobook and the transcript that was read aloud |
 
 ## Usage
 
@@ -85,8 +99,8 @@ If pages are missing between or within recordings, the run prints which page num
 | `--summarize FILE.md` | Writes summaries for an existing transcript (saved next to it as `.summary.md`), then stops |
 | `--no-cleanup` | Skips proofreading |
 | `--no-summary` | Skips the summaries |
-| `-o FILE` | Output file. By default it's named from the contents, e.g. `output/<Book> - Ch 20-21.m4b` |
-| `--title`, `--author` | Book title and author tags. By default they're read from the running heads (author on left-hand pages, title on right-hand pages). Use these for a single photo or a book laid out differently |
+| `-o FILE` | Output file. By default it's named from the contents, e.g. `output/<Book> - Ch 20-21.m4b`, or `output/<Paper title>.m4b` for a paper |
+| `--title`, `--author` | Title and author tags. For a book they're read from the running heads by default (author on left-hand pages, title on right-hand pages); use these for a single photo or a book laid out differently. For a paper they come from the paper and the PDF |
 | `--text-only` | Writes the transcript and summaries, with no audio |
 | `--video-every S` | Seconds between sampled video frames (default 0.5) |
 
@@ -114,6 +128,33 @@ A page is treated as a chapter opening when it has a "Chapter N" line (or Prolog
 A recording usually starts partway through a chapter. That opening text gets its own chapter, named from the next chapter's number, e.g. "Chapter 31 (continued)", or "Previous chapter (continued)" if no numbered chapter follows.
 
 A blank gap in the middle of a page (a scene break) is not a chapter. It becomes a 1.5-second pause in the audio and a `* * *` line in the transcript. A scene break that falls exactly at a page boundary can't be seen and is read straight through.
+
+## Scientific papers (beta)
+
+```sh
+./book2audio ~/Downloads/paper.pdf              # audiobook and transcript in output/
+./book2audio ~/Downloads/paper.pdf --text-only  # just the transcript, to check it first
+```
+
+Give it the PDF you downloaded from the journal or preprint server, one paper per run. It needs Claude Code (see [Requirements](#requirements)).
+
+**What you hear:**
+
+- The title, authors, affiliations and publication details, then every section in order: abstract, introduction, results, discussion, methods, acknowledgements and the rest.
+- One chapter per section, so you can skip what you don't want, for example Methods in one tap. A section with figures is split at its subsections.
+- Each figure and table as its own chapter, right after the part of the paper that first mentions it: "Figure 3. Caption: … Description: …". The description, about 100 to 150 words, is Claude's account of what the figure shows, written from the page image. It can get details wrong, so check the figure before relying on one.
+- Equations as one plain-English sentence on what they express, not read symbol by symbol.
+- Scientific notation read the way a person would say it: "p < 0.05" as "p less than 0 point 0 5", "5 mM" as "5 millimolar", "3.1 × 10³ M⁻¹ s⁻¹" as "3 point 1 times 10 to the 3 per molar per second", and so on.
+
+**What's left out:** the reference list, citation markers (they become "reference 27" only where the sentence needs them), running heads, page and line numbers, licence notices, links, and notes about a figure's data files. Text inside figures and tables isn't read out; the descriptions cover them.
+
+**How it works:** Claude reads each page from its image and the PDF's own text, and writes it out in reading order. book2audio then checks that against the PDF's text and asks again if any lines seem to be missing; any that still seem to be missing are listed as the run goes. Claude writes the figure descriptions from the page images.
+
+**Time and Claude usage:** Claude takes a minute or two for a 20- to 60-page paper. It uses about 5,000 to 10,000 tokens a page and about 4,000 a figure (for example about 140,000 for a 20-page paper and 330,000 for a 60-page one), and each run prints the total. This counts toward your Claude plan's usage limits. Papers are long to listen to: a 30-page paper is about 4 hours of audio and takes about 45 minutes to narrate on an M3 Pro. The rebuilt pages and figure descriptions are cached in `~/Library/Caches/book2audio/papers`, so running the same paper again (with a different voice, say) uses no Claude tokens, unless an update has changed how pages are read.
+
+**Mispronounced words:** some technical words come out wrong. Respellings for them live in `RESPELLINGS` in `src/book2audio/science.py` (for example, "acyl" is said "ACE-il"). If you hear a word said wrong, please report it.
+
+**Known limits in this beta:** scanned PDFs with no text layer are untested; supplementary files that come separately from the paper aren't read; papers with unusual layouts may put a figure chapter in an odd place. `--no-cleanup`, `--no-summary`, `--speak-summary` and `--summarize` are for books only.
 
 ## Listening on your phone
 
@@ -143,6 +184,9 @@ The code is in `src/book2audio/`:
 | `ordering.py` | Matches the many views of each page by their text and keeps the clearest. Page numbers are decided by vote, with evidence from the facing page. A read page number is ignored unless another page has a number close to it, which filters misreads like "867" while still allowing recordings of separate parts of the book |
 | `text.py` | Rebuilds paragraphs and writes the Markdown transcript |
 | `claude.py` | Proofreading and summaries, through `claude -p` |
+| `pdf.py`, `pdf.swift` | For papers: Apple's PDFKit reads each page's text and renders an image of it |
+| `paper.py` | For papers: Claude rebuilds each page in reading order, the result is checked against the PDF's text, and the pages are joined into chapters with figure and table descriptions |
+| `science.py` | For papers: reads units, symbols, numbers and technical words aloud the way a person would |
 | `speech.py` | Kokoro speaks each chapter, and ffmpeg packages everything as an AAC `.m4b` with a chapter track |
 | `cli.py` | The command line, tying the steps together |
 
@@ -150,9 +194,10 @@ The code is in `src/book2audio/`:
 
 - **"book2audio isn't fully set up yet"**, or a Python error after moving the folder or upgrading Python: run `./setup.sh` again.
 - **"Python 3.12 or 3.13 is needed":** run `brew install python@3.13`, then `./setup.sh`.
-- **"Couldn't compile the OCR helper":** run `xcode-select --install`, then `./setup.sh`.
+- **"Couldn't compile the OCR helper"** or **"the PDF helper":** run `xcode-select --install`, then `./setup.sh`.
 - **Pages missing or out of order:** re-shoot the pages the run lists, slower, and pass both recordings in one run.
-- **No proofreading or summaries:** install Claude Code and run `claude` once to log in.
+- **No proofreading or summaries,** or **"Papers need the `claude` command":** install Claude Code and run `claude` once to log in.
+- **A paper run lists lines that "may be missing":** check those places in the transcript (`.md`). Usually it's figure or table text, which is meant to be left out.
 
 ## Credits and third-party software
 

@@ -1,6 +1,6 @@
 #!/bin/sh
 # One-time setup: checks requirements, then builds the Python environment, downloads the
-# Kokoro voice model (~340 MB), installs ffmpeg if needed, and compiles the OCR helper.
+# Kokoro voice model (~340 MB), installs ffmpeg if needed, and compiles the OCR and PDF helpers.
 # Safe to run again at any time (for example after moving the folder).
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -62,5 +62,5 @@ swiftc -O -suppress-warnings src/book2audio/pdf.swift -o pdfpages
 
 ./book2audio --help >/dev/null
 command -v claude >/dev/null ||
-  echo "Note: Claude Code (the \`claude\` command) isn't installed, so runs will skip proofreading and summaries."
+  echo "Note: Claude Code (the \`claude\` command) isn't installed, so book runs will skip proofreading and summaries, and papers (PDFs) won't work."
 echo "Ready. Hear the voices with:  ./book2audio --voice-samples"

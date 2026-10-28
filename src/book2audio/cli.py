@@ -9,6 +9,7 @@ from pathlib import Path
 from . import ROOT, capture, claude, layout, ordering, paper, science, speech, text
 
 USAGE = """book2audio INPUT [INPUT ...] [options]
+       book2audio PAPER.pdf [options]
        book2audio --summarize TRANSCRIPT.md
        book2audio --list-voices | --voice-samples"""
 
@@ -20,22 +21,29 @@ and folders of them work too. By default each run writes to output/: the audiobo
 Proofreading and summaries send the book's text to Claude through your `claude`
 login (Claude Code). Use --no-cleanup --no-summary to keep everything on your Mac.
 
+A scientific paper (beta): give its PDF on its own. Claude reads every page and
+describes the figures and tables (this always uses Claude, page images included),
+and you get output/<Paper title>.m4b and .md. The run prints the Claude tokens used.
+
 examples:
   ./book2audio ~/Downloads/IMG_1234.MOV
   ./book2audio ~/Desktop/chapter32/ --voice george --speak-summary
   ./book2audio --summarize "output/My Book - Ch 20-21.md"
+  ./book2audio ~/Downloads/paper.pdf --text-only
 """
 
 
 def parse_args():
     ap = argparse.ArgumentParser(prog="book2audio", usage=USAGE, epilog=EPILOG,
-                                 description="Turn a video of you turning a book's pages (or photos of them) into an audiobook.",
+                                 description="Turn a video of you turning a book's pages (or photos of them), "
+                                             "or a scientific paper's PDF, into an audiobook.",
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("inputs", nargs="*", metavar="INPUT", help=argparse.SUPPRESS)
     ap.add_argument("-o", "--output", metavar="FILE",
-                    help="audiobook file to write (default: output/<Book> - <Ch 20-21>.m4b)")
-    ap.add_argument("--title", help="book title tag (default: read from the running heads)")
-    ap.add_argument("--author", help="author tag (default: read from the running heads)")
+                    help="audiobook file to write (default: output/<Book> - <Ch 20-21>.m4b, "
+                         "or output/<Paper title>.m4b)")
+    ap.add_argument("--title", help="title tag (default: a book's running heads, or the paper's title)")
+    ap.add_argument("--author", help="author tag (default: a book's running heads, or the PDF's author)")
 
     g = ap.add_argument_group("voice")
     g.add_argument("--voice", metavar="NAME",
@@ -64,7 +72,7 @@ def parse_args():
     if args.summarize and args.inputs:
         ap.error("--summarize takes a transcript on its own, without other inputs")
     if not (args.inputs or args.summarize or args.list_voices or args.voice_samples):
-        ap.error("give at least one photo, folder or video (see --help)")
+        ap.error("give at least one photo, folder or video, or a paper's PDF (see --help)")
     args.paper = None
     if any(Path(a).suffix.lower() == ".pdf" for a in args.inputs):
         if len(args.inputs) > 1:
