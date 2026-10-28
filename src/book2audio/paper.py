@@ -25,8 +25,11 @@ Write the page as Markdown, in the order a person reads it (columns left to righ
 - Keep every sentence of the body text. When unsure whether something is page furniture, keep it.
 - Leave out running heads, page numbers, line numbers, journal banners, copyright/licence notices,
   download stamps, "Check for updates" marks, email addresses, URLs and DOIs.
-- Author affiliations go in one paragraph starting "Affiliations: ". Footnotes go at the end of the
-  page, each as its own paragraph starting "Footnote: ".
+- Author affiliations go in one paragraph starting "Affiliations: ". Publication details printed in a
+  sidebar or box on the first page (citation, editor, received/accepted/published dates, data
+  availability, funding, competing interests) come right after the affiliations, before the
+  abstract, each as its own paragraph. Footnotes go at the end of the page, each as its own
+  paragraph starting "Footnote: ".
 - Rejoin words hyphenated at line ends. One paragraph per line, blank line between paragraphs.
 - Remove citation markers: superscript reference numbers, bracketed numbers like [12] or [3-5],
   and author-year citations like (Smith et al. 2020; Lee 2019). If a citation is part of the
@@ -38,7 +41,7 @@ Write the page as Markdown, in the order a person reads it (columns left to righ
 - Leave out the reference list (References, Literature Cited, Bibliography): write one line
   <<REFERENCES>> where it starts, and carry on with anything that follows it on the page.
 - A displayed equation becomes one line: [Equation 3: one plain-English sentence on what it
-  expresses, e.g. "the number of protofibrils grows with the square of the fiber diameter"]
+  expresses, e.g. "the population grows in proportion to its current size"]
   ("[Equation: ...]" if it has no number). Give its meaning, not a symbol-by-symbol reading, and
   don't list the entries of vectors or matrices. Inline math stays inline, written as text
   (e.g. "n = 46").
