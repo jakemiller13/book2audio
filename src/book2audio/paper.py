@@ -268,10 +268,13 @@ def rebuild_pages(cache, pages):
 
 # ---------------------------------------------------------------- joining pages into chapters
 
-MARKER = re.compile(r"^<<(FIGURE|TABLE)\s+(.+?)\s*(?::\s*(.*?))?\s*>>$")
+MARKER = re.compile(r"^<<?(FIGURE|TABLE)\s+(.+?)\s*(?::\s*(.*?))?\s*>>?$")   # Claude now and then drops a bracket
+REFS_MARKER = re.compile(r"^<<?REFERENCES>>?$")
 MENTION = re.compile(r"\b(Supplementary\s+|Suppl\.\s+|Extended\s+Data\s+)?(Fig(?:ure)?s?\.?|Tables?)\s*"
                      r"((?:S?\d+[A-Za-z]?(?:\s*(?:,|–|—|-|&|and)\s*(?=S?\d))?)+)")
 OPEN_END = re.compile(r"""[.!?:]["”’')\]]*$""")
+SOURCE_NOTE = re.compile(r"(?i)^(?:Supplementa(?:l|ry)\s+)?(?:Figure|Fig\.?|Table)\s*S?\d+[A-Za-z]?\s*[–—-]?\s*"
+                         r"source\s+(?:data|code)\b")   # "Figure 1 – source data 2. ... [file.xlsx]"
 CAPTION_LABEL = re.compile(r"^(?:(?:Supplementary|Suppl\.|Extended\s+Data)\s+)?(?:Fig(?:ure)?\.?|Table)\s*"
                            r"[A-Z]?\d+[A-Za-z]?\s*[.:|]?\s*")   # "Figure 2.", "Extended Data Fig. 3 |"
 
@@ -318,11 +321,18 @@ def join_pages(page_md):
     def last_para():
         return next((it for it in reversed(flow) if it["type"] not in ("marker", "front")), None)
 
+    note_cut = False                       # a dropped note ended mid-sentence: it goes on next page
     for page_no in sorted(page_md):
         first_text = True
         for line in page_md[page_no].splitlines():
             line = line.strip()
             if not line:
+                continue
+            if SOURCE_NOTE.match(line):    # notes on a figure's data files mean nothing read aloud
+                note_cut = not OPEN_END.search(line)
+                continue
+            if note_cut and first_text and line[:1].islower():
+                note_cut = False           # the rest of a note cut by the page break
                 continue
             m = MARKER.match(line)
             if m:
@@ -339,7 +349,8 @@ def join_pages(page_md):
                     fig["caption_at_top"] = first_text
                     flow.append({"type": "marker", "text": key, "page": page_no})
                 continue
-            if line == "<<REFERENCES>>":
+            note_cut = False
+            if REFS_MARKER.match(line):
                 kind, text = "refs", ""
             elif line.startswith("# "):
                 kind, text = "title", line[2:].strip()
