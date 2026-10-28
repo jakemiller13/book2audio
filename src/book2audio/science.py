@@ -23,7 +23,7 @@ SLASH_UNITS = [(r"m[lL]", "milliliter"), (rf"{MICRO}[lL]", "microliter"), (r"L",
                (r"min", "minute"), (r"h", "hour"), (r"s", "second"), (r"kg", "kilogram"), (r"g", "gram")]
 GREEK = {"α": "alpha", "β": "beta", "γ": "gamma", "δ": "delta", "Δ": "delta", "ε": "epsilon",
          "θ": "theta", "κ": "kappa", "λ": "lambda", "μ": "mu", "π": "pi", "σ": "sigma", "τ": "tau",
-         "φ": "phi", "χ": "chi", "ψ": "psi", "ω": "omega", "Ω": "omega"}
+         "φ": "phi", "ϕ": "phi", "χ": "chi", "ψ": "psi", "ω": "omega", "Ω": "omega"}
 IONS = {"Zn": "zinc", "Mg": "magnesium", "Mn": "manganese", "Ca": "calcium", "Fe": "iron",
         "Cu": "copper", "Co": "cobalt", "Ni": "nickel", "Cd": "cadmium", "Na": "sodium",
         "K": "potassium", "Li": "lithium"}
@@ -67,7 +67,7 @@ def speakable_science(text):
     t = re.sub(r"(?<=[A-Za-z])³(?![⁺⁻])", " cubed", t)
     t = t.translate(SUPERSCRIPTS)
     for _ in range(3):                                                                  # M−1 s−1
-        t = re.sub(r"(\d|per \w+)\s*(M|s|h|min)\s*[−-]\s*1\b", lambda m: f"{m.group(1)} per {PER[m.group(2)]}", t)
+        t = re.sub(r"(\d|per \w+)\s*(M|s|h|min)\s*\^?\s*[−-]\s*1\b", lambda m: f"{m.group(1)} per {PER[m.group(2)]}", t)
     t = re.sub(r"\b(" + "|".join(IONS) + r")\d?\+(?![\w+])", lambda m: IONS[m.group(1)], t)   # Zn2+
     t = re.sub(r"\s*±\s*", " plus or minus ", t)
     t = re.sub(r"(?<=\d)×-(?=[A-Za-z])", "-", t)                                        # 6×-His
@@ -75,6 +75,9 @@ def speakable_science(text):
     t = re.sub(r"\s*°\s*C\b", " degrees Celsius", t)
     t = re.sub(r"(?<=\d)\s*°", " degrees", t)
     t = re.sub(r"(?<![\w.])[−-](?=\d)", "minus ", t)                             # −80 °C
+    t = re.sub(r"\s*≤\s*", " less than or equal to ", t)
+    t = re.sub(r"\s*≥\s*", " greater than or equal to ", t)
+    t = re.sub(r"\s*≈\s*", " approximately ", t)
     t = re.sub(r"\s*<\s*(?=[\d.])", " less than ", t)
     t = re.sub(r"\s*>\s*(?=[\d.])", " greater than ", t)
     t = re.sub(r"[~∼]\s*(?=\d)", "about ", t)
@@ -99,4 +102,5 @@ def speakable_science(text):
     t = re.sub(f"([A-Za-z])?([{''.join(GREEK)}])([A-Za-z0-9])?",                         # β-sheet, TNFα, Gαq
                lambda m: " ".join(s for s in (m.group(1), GREEK[m.group(2)], m.group(3)) if s), t)
     t = t.replace("−", "-")                                                     # a minus sign between labels
+    t = re.sub(r"(?<=\w)_(?=\w)", " ", t)                                     # k_deg -> "k deg"
     return re.sub(r"\s+", " ", t).strip()
