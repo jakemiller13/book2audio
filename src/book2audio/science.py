@@ -45,7 +45,7 @@ ROMAN_AFTER = re.compile(r"\b((?i:(?:sub)?(?:types?|class(?:es)?|groups?|complex
                          r"famil(?:y|ies)|clusters?|clades?|domains?|parts?|regions?|sites?|motifs?|loops?|"
                          r"generations?|levels?|categor(?:y|ies)|forms?|(?:pro|meta|ana|telo)phase|meiosis|ligases?|"
                          r"polymerases?|pol|topoisomerases?|photosystems?|chromosomes?))\s+)([IVX]+)(?=[a-z]?(?![A-Za-z]))")
-ROMAN_SUBTYPE = re.compile(r"(?<![\w-])([IVX]+)(?=-[A-Z]\d?\b)")      # IV-C, III-B: a subtype, whatever precedes
+ROMAN_SUBTYPE = re.compile(r"(?<![\w-])([IVX]+)(?=-[A-Z]\d?\b)")      # II-B, IV-A: a subtype, whatever precedes
 ROMAN_MORE = re.compile(r"(\d(?:-[A-Z]\d?)?[a-z]?(?:\s*,\s*|\s+and\s+|\s+or\s+|\s*/\s*)(?:and\s+|or\s+)?)"
                         r"([IVX]+)(?=[a-z]?(?![A-Za-z]))")
 
@@ -88,7 +88,7 @@ def roman(s):
 
 
 def arabic_numerals(t):
-    """'type IV-C' -> 'type 4-C', 'class IIa' -> 'class 2a', 'types I and III' -> 'types 1 and 3'.
+    """'type II-B' -> 'type 2-B', 'class IIa' -> 'class 2a', 'types I and III' -> 'types 1 and 3'.
     The voice would say 'roman four', or 'eye' for I."""
     swap = lambda m: m.group(1) + str(roman(m.group(2)) or m.group(2))
     t = ROMAN_AFTER.sub(swap, t)
@@ -109,7 +109,7 @@ def say_unit(t, pattern, spoken, space=r"\s*"):
 
 
 def speakable_science(text):
-    t = arabic_numerals(text)                                                          # type IV-C
+    t = arabic_numerals(text)                                                          # type II-B
     t = re.sub(r"(?<![\w.])(\d{1,2})\s?['′’](?![A-Za-z]{2})", r"\1 prime ", t)              # 5′ end, 3’-OH
     t = re.sub(r"(?<=\d)\s*[×x]\s*10(?=[⁻^" + SUP_DIGITS + "])", " times 10", t)     # 3.1 × 10³
     power = lambda m: "10 to the " + m.group(1).translate(SUPERSCRIPTS).replace("-", "minus ").replace("−", "minus ")
@@ -157,6 +157,6 @@ def speakable_science(text):
     t = re.sub(r"(?<=\w)_(?=\w)", " ", t)                                     # k_deg -> "k deg"
     t = SPELL_TWO.sub(lambda m: padded(m, spell_out(m.group())), t)             # cryo-EM -> cryo-ee em
     # Capitals glued into a name after a digit are letters of the name, not a Roman numeral:
-    # Cas10IVc -> "Cas10 eye vee c" (a standalone "type IV" became "type 4" above)
+    # Xyz10IVb -> "Xyz10 eye vee b" (a standalone "type IV" became "type 4" above)
     t = re.sub(r"\b([A-Za-z]+\d+)([A-Z]{2,})(?=[a-z]?\d*(?![A-Za-z]))", lambda m: f"{m.group(1)} {spell_out(m.group(2))} ", t)
     return re.sub(r"\s+", " ", t).strip()

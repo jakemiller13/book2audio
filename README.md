@@ -144,7 +144,7 @@ Give it the PDF you downloaded from the journal or preprint server, one paper pe
 - One chapter per section, so you can skip what you don't want, for example Methods in one tap. A section with figures is split at its subsections.
 - Each figure and table as its own chapter, right after the part of the paper that first mentions it: "Figure 3. Caption: … Description: …". The description, about 100 to 150 words, is Claude's account of what the figure shows, written from the page image. It can get details wrong, so check the figure before relying on one.
 - Equations as one plain-English sentence on what they express, not read symbol by symbol.
-- Scientific notation read the way a person would say it: "p < 0.05" as "p less than 0 point 0 5", "5 mM" as "5 millimolar", "3.1 × 10³ M⁻¹ s⁻¹" as "3 point 1 times 10 to the 3 per molar per second", "type IV-C" as "type 4-C", "5′" as "five prime", "cryo-EM" as "cryo-E-M", and so on.
+- Scientific notation read the way a person would say it: "p < 0.05" as "p less than 0 point 0 5", "5 mM" as "5 millimolar", "3.1 × 10³ M⁻¹ s⁻¹" as "3 point 1 times 10 to the 3 per molar per second", "class IIa" as "class 2a", "5′" as "five prime", "cryo-EM" as "cryo-E-M", and so on.
 - Technical words said the way scientists say them (see [Mispronounced words](#mispronounced-words) below).
 
 **What's left out:** the reference list, citation markers (they become "reference 27" only where the sentence needs them), running heads, page and line numbers, licence notices, links, and notes about a figure's data files. Text inside figures and tables isn't read out; the descriptions cover them.
