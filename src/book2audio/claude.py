@@ -1,6 +1,7 @@
 """The steps that use Claude, through the `claude` command (Claude Code) and the user's
-existing login: proofreading the OCR text, short chapter summaries, and (in paper.py)
-rebuilding paper pages and describing figures. All of them send the text to Anthropic."""
+existing login: proofreading the OCR text, short chapter summaries, and, for papers, rebuilding
+pages and describing figures (paper.py) and listing how technical words are said (pronounce.py).
+All of them send the text to Anthropic."""
 import base64
 import json
 import shutil
