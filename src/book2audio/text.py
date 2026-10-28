@@ -1,11 +1,12 @@
 """The book's text as a list of blocks, and the Markdown transcript made from them.
 
-A block is (kind, text): ("chapter", heading), ("para", paragraph) or ("break", "") for a
-scene break."""
+A block is (kind, text): ("chapter", heading), ("para", paragraph), ("break", "") for a
+scene break, or ("subheading", heading) for a heading inside a chapter (papers)."""
 import datetime
 import re
 
 SCENE_BREAK = "* * *"
+SUBHEADING = "### "   # marks a subheading among a section's paragraphs
 CONTINUED = "(continued)"
 
 
@@ -94,7 +95,7 @@ def short_label(title):
 
 
 def sections(blocks):
-    """Group blocks by chapter: [(heading, [paragraph or SCENE_BREAK, ...])]."""
+    """Group blocks by chapter: [(heading, [paragraph, SCENE_BREAK or "### subheading", ...])]."""
     out = []
     for kind, text in blocks:
         if kind == "chapter":
@@ -102,12 +103,13 @@ def sections(blocks):
         else:
             if not out:
                 out.append((f"Previous chapter {CONTINUED}", []))
-            out[-1][1].append(SCENE_BREAK if kind == "break" else text)
+            out[-1][1].append(SCENE_BREAK if kind == "break" else
+                              SUBHEADING + text if kind == "subheading" else text)
     return out
 
 
 def blocks_to_markdown(blocks):
-    out = {"chapter": "## {}", "break": SCENE_BREAK, "para": "{}"}
+    out = {"chapter": "## {}", "subheading": SUBHEADING + "{}", "break": SCENE_BREAK, "para": "{}"}
     return "\n\n".join(out[k].format(t) for k, t in blocks) + "\n"
 
 
@@ -115,7 +117,9 @@ def markdown_to_blocks(md_text):
     blocks = []
     for para in md_text.strip().split("\n\n"):
         para = para.strip()
-        if para.startswith("## "):
+        if para.startswith(SUBHEADING):
+            blocks.append(("subheading", para[len(SUBHEADING):].strip()))
+        elif para.startswith("## "):
             blocks.append(("chapter", para[3:].strip()))
         elif para == SCENE_BREAK:
             blocks.append(("break", ""))

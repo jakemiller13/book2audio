@@ -13,7 +13,7 @@ import numpy as np
 import soundfile as sf
 
 from . import ROOT
-from .text import SCENE_BREAK, is_continued, sections, short_label
+from .text import SCENE_BREAK, SUBHEADING, is_continued, sections, short_label
 
 MODELS = ROOT / "models"
 MODEL_FILE = MODELS / "kokoro-v1.0.onnx"
@@ -120,15 +120,24 @@ class KokoroVoice:
         return np.zeros(int(self.rate * seconds), dtype=np.float32)
 
 
+def as_heading(text):
+    """A heading read as its own sentence: 'Model domain' -> 'Model domain.'"""
+    return text.rstrip(" .:") + "."
+
+
 def render_section(engine, heading, paragraphs, wav_path, progress):
     """Speak one chapter (its heading, if given, then the paragraphs) into a WAV file and
     return its length in seconds."""
     chunks = []
     if heading:
-        chunks += [engine.silence(CHAPTER_PAUSE), engine.speak(heading + "."), engine.silence(CHAPTER_PAUSE)]
+        chunks += [engine.silence(CHAPTER_PAUSE), engine.speak(as_heading(heading)), engine.silence(CHAPTER_PAUSE)]
     for para in paragraphs:
         if para == SCENE_BREAK:
             chunks.append(engine.silence(SCENE_PAUSE))
+            continue
+        if para.startswith(SUBHEADING):
+            chunks += [engine.silence(SCENE_PAUSE), engine.speak(as_heading(para[len(SUBHEADING):])),
+                       engine.silence(PARAGRAPH_PAUSE)]
             continue
         chunks += [engine.speak(para), engine.silence(PARAGRAPH_PAUSE)]
         progress(len(para.split()))

@@ -1,11 +1,15 @@
-"""The optional steps that use Claude, through the `claude` command (Claude Code) and the
-user's existing login: proofreading the OCR text, and short chapter summaries.
-Either way, the book's text is sent to Anthropic."""
+"""The steps that use Claude, through the `claude` command (Claude Code) and the user's
+existing login: proofreading the OCR text, short chapter summaries, and (in paper.py)
+rebuilding paper pages and describing figures. All of them send the text to Anthropic."""
+import base64
+import json
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from .text import SCENE_BREAK, sections
 
@@ -39,21 +43,50 @@ Cover only this text; don't guess at what comes next or bring in anything from o
 No heading, no bullet points, no Markdown, no commentary. Return only the paragraph."""
 
 
+USAGE = {"calls": 0, "tokens": 0}   # running total for this run, for the end-of-run report
+_usage_lock = threading.Lock()
+
+
 def available():
     return shutil.which("claude") is not None
 
 
-def ask(system_prompt, text):
-    """One `claude -p` call: no tools, no MCP servers, nothing saved to session history."""
+def ask(system_prompt, text, images=()):
+    """One `claude -p` call: no tools, no MCP servers, nothing saved to session history.
+    Images (PNG paths) are sent inline with the text, so Claude needs no file access."""
+    content = [{"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                            "data": base64.b64encode(Path(p).read_bytes()).decode()}}
+               for p in images]
+    content.append({"type": "text", "text": text})
+    msg = {"type": "user", "message": {"role": "user", "content": content}}
     with tempfile.TemporaryDirectory() as tmp:  # neutral cwd: no project CLAUDE.md
         r = subprocess.run(
             ["claude", "-p", "--model", "opus", "--effort", "low",
              "--system-prompt", system_prompt, "--tools", "", "--strict-mcp-config",
-             "--no-session-persistence", "--output-format", "text"],
-            input=text, capture_output=True, text=True, cwd=tmp, timeout=900)
-    if r.returncode != 0:
-        raise RuntimeError(f"claude exited {r.returncode}: {r.stderr.strip()[:200]}")
-    return r.stdout.strip()
+             "--no-session-persistence", "--input-format", "stream-json",
+             "--output-format", "stream-json", "--verbose"],
+            input=json.dumps(msg) + "\n", capture_output=True, text=True, cwd=tmp, timeout=900)
+    result = None
+    for line in r.stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get("type") == "result":
+            result = event
+    if r.returncode != 0 or result is None or result.get("is_error"):
+        detail = (result or {}).get("result") or r.stderr.strip() or f"exit code {r.returncode}"
+        raise RuntimeError(f"claude failed: {str(detail)[:200]}")
+    usage = result.get("usage") or {}
+    with _usage_lock:
+        USAGE["calls"] += 1
+        USAGE["tokens"] += sum(usage.get(k) or 0 for k in ("input_tokens", "output_tokens",
+                               "cache_creation_input_tokens", "cache_read_input_tokens"))
+    return (result.get("result") or "").strip()
+
+
+def usage_report():
+    return f"Claude: {USAGE['calls']} call(s), about {USAGE['tokens']:,} tokens"
 
 
 def proofread(md_text):
