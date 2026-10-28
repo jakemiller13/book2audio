@@ -51,6 +51,33 @@ RESPELLINGS = [                             # words the voice says wrong, spelle
 ]
 
 
+ROMAN_AFTER = re.compile(r"\b((?i:(?:sub)?(?:types?|class(?:es)?|groups?|complex(?:es)?|phases?|stages?|grades?|"
+                         r"famil(?:y|ies)|clusters?|clades?|domains?|parts?|regions?|sites?|motifs?|loops?|"
+                         r"generations?|levels?|categor(?:y|ies)|forms?|(?:pro|meta|ana|telo)phase|meiosis|ligases?|"
+                         r"polymerases?|pol|topoisomerases?|photosystems?|chromosomes?))\s+)([IVX]+)(?=[a-z]?(?![A-Za-z]))")
+ROMAN_SUBTYPE = re.compile(r"(?<![\w-])([IVX]+)(?=-[A-Z]\d?\b)")      # IV-C, III-B: a subtype, whatever precedes
+ROMAN_MORE = re.compile(r"(\d(?:-[A-Z]\d?)?[a-z]?(?:\s*,\s*|\s+and\s+|\s+or\s+|\s*/\s*)(?:and\s+|or\s+)?)"
+                        r"([IVX]+)(?=[a-z]?(?![A-Za-z]))")
+
+
+def roman(s):
+    """'IV' -> 4; None if it isn't a well-formed Roman numeral."""
+    values = {"I": 1, "V": 5, "X": 10}
+    n = sum(-values[a] if values[a] < values[b] else values[a] for a, b in zip(s, s[1:] + "I"))
+    return n if 0 < n < 40 and re.fullmatch(r"X{0,3}(IX|IV|V?I{0,3})", s) else None
+
+
+def arabic_numerals(t):
+    """'type IV-C' -> 'type 4-C', 'class IIa' -> 'class 2a', 'types I and III' -> 'types 1 and 3'.
+    The voice would say 'roman four', or 'eye' for I."""
+    swap = lambda m: m.group(1) + str(roman(m.group(2)) or m.group(2))
+    t = ROMAN_AFTER.sub(swap, t)
+    t = ROMAN_SUBTYPE.sub(lambda m: str(roman(m.group(1)) or m.group(1)), t)
+    for _ in range(4):                     # lists: "types I, II and III"
+        t = ROMAN_MORE.sub(swap, t)
+    return t
+
+
 def say_unit(t, pattern, spoken, space=r"\s*"):
     """'5 mM' -> '5 millimolar'; singular after 1 or an article: '1 hour', 'a 3 kilobase fragment'."""
     def say(m):
@@ -62,7 +89,9 @@ def say_unit(t, pattern, spoken, space=r"\s*"):
 
 
 def speakable_science(text):
-    t = re.sub(r"(?<=\d)\s*[×x]\s*10(?=[⁻^" + SUP_DIGITS + "])", " times 10", text)  # 3.1 × 10³
+    t = arabic_numerals(text)                                                          # type IV-C
+    t = re.sub(r"(?<![\w.])(\d{1,2})\s?['′’](?![A-Za-z]{2})", r"\1 prime ", t)              # 5′ end, 3’-OH
+    t = re.sub(r"(?<=\d)\s*[×x]\s*10(?=[⁻^" + SUP_DIGITS + "])", " times 10", t)     # 3.1 × 10³
     power = lambda m: "10 to the " + m.group(1).translate(SUPERSCRIPTS).replace("-", "minus ").replace("−", "minus ")
     t = re.sub(rf"\b10(⁻?[{SUP_DIGITS}]+)", power, t)
     t = re.sub(r"\b10\^([−-]?\d+)", power, t)                                           # 10^-3
