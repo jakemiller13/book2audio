@@ -6,7 +6,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from . import ROOT, capture, claude, layout, ordering, paper, science, speech, text
+from . import ROOT, capture, claude, layout, ordering, paper, pronounce, science, speech, text
 
 USAGE = """book2audio INPUT [INPUT ...] [options]
        book2audio PAPER.pdf [options]
@@ -192,13 +192,20 @@ def paper_audiobook(args, voice):
     md = out.with_suffix(".md")
     md.write_text(text.blocks_to_markdown(blocks))
     print(f"Transcript: {md}", file=sys.stderr)
-    print(claude.usage_report(), file=sys.stderr)
     if args.text_only:
+        print(claude.usage_report(), file=sys.stderr)
         return
+
+    print("Working out how to say the paper's technical words with Claude...", file=sys.stderr)
+    pron = pronounce.for_paper(paper.cache_dir(args.paper), title, blocks)
+    review = out.with_suffix(".pronunciations.md")
+    review.write_text(pron.review(title, text.blocks_to_markdown(blocks)))
+    print(f"Pronunciations: {review}", file=sys.stderr)
+    print(claude.usage_report(), file=sys.stderr)
 
     print(f"Synthesizing speech ({voice})...", file=sys.stderr)
     tags = {"title": title, "album": title, "artist": author, "album_artist": author}
-    chapters = speech.synthesize(blocks, out, voice, tags, normalize=science.speakable_science)
+    chapters = speech.synthesize(blocks, out, voice, tags, normalize=science.speakable_science, pronouncer=pron)
     report_audio(out, chapters)
 
 

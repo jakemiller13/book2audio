@@ -35,19 +35,9 @@ ABBREVIATIONS = [
     (r"\b([A-Z])\.\s+(?=[a-z]{3,})", r"\1 "), (r"\bspp?\.", "species"),          # E. coli, sp.
     (r"\b(NADP?)\+", r"\1 plus"), (r"\(w/v\)", "(weight per volume)"), (r"\(v/v\)", "(volume per volume)"),
 ]
-RESPELLINGS = [                             # words the voice says wrong, spelled the way they sound
-    (r"ac\(et\)yl", "acetyl"),              # deac(et)ylase: read every letter
-    (r"([A-Z]{2,})acyl", r"\1 ace-il"),     # a peptide named for its acyl group: ABCacyl
-    (r"\b([Dd])eacetylase", r"\1e-a-setta-lace"),   # "dee-uh-SET-uh-lay-sus"
-    (r"\b([Dd])eacetyl", r"\1e-a-setta-l"),         # deacetylation, deacetylated
-    (r"\b([Ee])ukaryot(?=e|ic)", lambda m: ("Y" if m.group(1) == "E" else "y") + "ou-carry-ot"),  # "YOU-carry-otes"
-    (r"\b([Pp])rokaryot(?=e|ic)", r"\1ro-carry-ot"),                                              # "PRO-carry-otes"
-    (r"\b([Ff])ibrin", r"\1ye-brin"),       # fibrin, fibrinolysis: "FYE-brin", not "FIB-rin"
-    (r"\b([Ss])tochast", r"\1tokast"),      # stochastic: "stuh-KAS-tic", not "stuh-CHAS-tic"
-    (r"\b([Ll])ysis\b", r"\1ye-sis"),       # lysis on its own: "LYE-sis", not "LYE-seez"
-    (r"\b([Dd])e(?=a(?:cyl|cetyl|mid|min)|lactyl)", r"\1e-"),   # deacylase: "dee-ACE...", not "dee-sil..."
-    (r"(?<=cyl|tyl)ase", "ace"),            # -ases with an s sound: "dee-ace-il-ay-sus"
-    (r"\b([Aa])cyl", lambda m: m.group(1) + "ce-il"),   # acyl: "ACE-il", not "a-KILL"
+READ_AS = [                                 # how a written form is meant to be read; how individual
+    (r"ac\(et\)yl", "acetyl"),              # words sound is up to pronounce.py and pronunciations.txt
+    (r"([A-Z]{2,})acyl", r"\1 acyl"),       # a peptide named for its acyl group: ABCacyl
 ]
 
 
@@ -154,7 +144,7 @@ def speakable_science(text):
     t = re.sub(r"(?<!\w)[µμ](g|[lL]|m|M|s)\b", lambda m: MICRO_ALONE[m.group(1)], t)   # (μg/mL)
     for pattern, spoken in SLASH_UNITS:
         t = re.sub(rf"(?<=[a-z])\s*/\s*(?:{pattern})(?![A-Za-z])", " per " + spoken, t)
-    for pattern, spoken in ABBREVIATIONS + RESPELLINGS:
+    for pattern, spoken in ABBREVIATIONS + READ_AS:
         t = re.sub(pattern, spoken, t)
     # Decimals written out: the pronunciation step can take a decimal point for a full stop
     # ("3.1" -> "three. one", with a pause), depending on the rest of the sentence.

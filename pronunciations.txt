@@ -1,0 +1,32 @@
+# How book2audio says particular words in scientific papers. These entries win over the
+# pronunciations Claude writes for each paper.
+#
+# One word per line:   word = how it sounds
+#
+#   fibrin = fye-brin            spell it the way it sounds; the voice reads that spelling
+#   prokaryotes = /pɹˈoʊkæɹiˌoʊts/   or give exact sounds (IPA) between slashes; ˈ marks the stress
+#   CRISPRi = letters            say it letter by letter
+#   fibrin* = fye-brin*          a * covers every word starting this way and keeps the ending
+#                                (fibrinolysis -> fye-brinolysis)
+#
+# A word in lower case matches any capitalisation; a word with capitals matches only as written.
+# For your own additions, use pronunciations.local.txt in this folder (same format; git doesn't
+# track it, and its entries win over this file). Then make the audiobook again.
+
+acyl* = ace-il*
+acylase* = ace-ilace*
+deacyl* = de-ace-il*
+deacylase* = de-ace-ilace*
+deacetyl* = de-a-setta-l*
+deacetylase* = de-a-setta-lace*
+delactyl* = de-lactyl*
+delactylase* = de-lactylace*
+eukaryote = /jˈuːkæɹiˌoʊt/
+eukaryotes = /jˈuːkæɹiˌoʊts/
+eukaryotic = /jˌuːkæɹiˈɑːɾɪk/
+prokaryote = /pɹˈoʊkæɹiˌoʊt/
+prokaryotes = /pɹˈoʊkæɹiˌoʊts/
+prokaryotic = /pɹˌoʊkæɹiˈɑːɾɪk/
+fibrin* = fye-brin*
+stochastic* = stokastic*
+lysis = lye-sis

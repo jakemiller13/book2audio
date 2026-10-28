@@ -144,17 +144,30 @@ Give it the PDF you downloaded from the journal or preprint server, one paper pe
 - One chapter per section, so you can skip what you don't want, for example Methods in one tap. A section with figures is split at its subsections.
 - Each figure and table as its own chapter, right after the part of the paper that first mentions it: "Figure 3. Caption: … Description: …". The description, about 100 to 150 words, is Claude's account of what the figure shows, written from the page image. It can get details wrong, so check the figure before relying on one.
 - Equations as one plain-English sentence on what they express, not read symbol by symbol.
-- Scientific notation read the way a person would say it: "p < 0.05" as "p less than 0 point 0 5", "5 mM" as "5 millimolar", "3.1 × 10³ M⁻¹ s⁻¹" as "3 point 1 times 10 to the 3 per molar per second", and so on.
+- Scientific notation read the way a person would say it: "p < 0.05" as "p less than 0 point 0 5", "5 mM" as "5 millimolar", "3.1 × 10³ M⁻¹ s⁻¹" as "3 point 1 times 10 to the 3 per molar per second", "type IV-C" as "type 4-C", "5′" as "five prime", "cryo-EM" as "cryo-E-M", and so on.
+- Technical words said the way scientists say them (see [Mispronounced words](#mispronounced-words) below).
 
 **What's left out:** the reference list, citation markers (they become "reference 27" only where the sentence needs them), running heads, page and line numbers, licence notices, links, and notes about a figure's data files. Text inside figures and tables isn't read out; the descriptions cover them.
 
-**How it works:** Claude reads each page from its image and the PDF's own text, and writes it out in reading order. book2audio then checks that against the PDF's text and asks again if any lines seem to be missing; any that still seem to be missing are listed as the run goes. Claude writes the figure descriptions from the page images.
+**How it works:** Claude reads each page from its image and the PDF's own text, and writes it out in reading order. book2audio then checks that against the PDF's text and asks again if any lines seem to be missing; any that still seem to be missing are listed as the run goes. Claude writes the figure descriptions from the page images, and, before the narration, a list of how the paper's technical words, names and abbreviations are said.
 
-**Time and Claude usage:** Claude takes a minute or two for a 20- to 60-page paper. It uses about 5,000 to 10,000 tokens a page and about 4,000 a figure (for example about 140,000 for a 20-page paper and 330,000 for a 60-page one), and each run prints the total. This counts toward your Claude plan's usage limits. Papers are long to listen to: about 75 minutes of audio for a 20-page paper and about 4 hours for a 30-page one with long methods. Narrating took 2 to 5 times less than the audio's length on an M3 Pro (a 4-hour paper in 45 minutes to 2 hours), so `--text-only` first is a quick way to check a paper. The rebuilt pages and figure descriptions are cached in `~/Library/Caches/book2audio/papers`, so running the same paper again (with a different voice, say) uses no Claude tokens, unless an update has changed how pages are read.
-
-**Mispronounced words:** some technical words come out wrong. Respellings for them live in `RESPELLINGS` in `src/book2audio/science.py` (for example, "acyl" is said "ACE-il"). If you hear a word said wrong, please report it.
+**Time and Claude usage:** Claude takes a minute or two for a 20- to 60-page paper. It uses about 5,000 to 10,000 tokens a page and about 4,000 a figure (for example about 140,000 for a 20-page paper and 330,000 for a 60-page one), plus 10,000 to 30,000 for the pronunciation list when you make the audio; each run prints the total. This counts toward your Claude plan's usage limits. Papers are long to listen to: about 75 minutes of audio for a 20-page paper and about 4 hours for a 30-page one with long methods. Narrating took 2 to 5 times less than the audio's length on an M3 Pro (a 4-hour paper in 45 minutes to 2 hours), so `--text-only` first is a quick way to check a paper. The rebuilt pages, figure descriptions and pronunciation list are cached in `~/Library/Caches/book2audio/papers`, so running the same paper again (with a different voice, say) uses no Claude tokens, unless an update has changed how pages are read.
 
 **Known limits in this beta:** scanned PDFs with no text layer are untested; supplementary files that come separately from the paper aren't read; papers with unusual layouts may put a figure chapter in an odd place. `--no-cleanup`, `--no-summary`, `--speak-summary` and `--summarize` are for books only.
+
+### Mispronounced words
+
+The voice knows everyday English but guesses other words from their spelling ("fibrin" as "FIB-rin"). So for each paper, Claude lists how its technical words, names and abbreviations are said, and the voice uses those sounds. The list is saved next to the audiobook as `<Paper title>.pronunciations.md`, so you can check it.
+
+If a word still comes out wrong, add it to `pronunciations.local.txt` in the book2audio folder (create it if it isn't there), one word per line, then make the audiobook again:
+
+```text
+fibrin = fye-brin          # spell it the way it sounds
+fibrin* = fye-brin*        # also covers fibrinolysis, fibrinogen, ... (keeps the ending)
+CRISPRi = letters          # say it letter by letter
+```
+
+Your entries win over Claude's list. `pronunciations.txt` has the shared entries and explains the format, including exact sounds (IPA). Please report words you fix, so they can go into the shared list.
 
 ## Listening on your phone
 
@@ -186,7 +199,8 @@ The code is in `src/book2audio/`:
 | `claude.py` | Proofreading and summaries, through `claude -p` |
 | `pdf.py`, `pdf.swift` | For papers: Apple's PDFKit reads each page's text and renders an image of it |
 | `paper.py` | For papers: Claude rebuilds each page in reading order, the result is checked against the PDF's text, and the pages are joined into chapters with figure and table descriptions |
-| `science.py` | For papers: reads units, symbols, numbers and technical words aloud the way a person would |
+| `science.py` | For papers: reads units, symbols and numbers aloud the way a person would |
+| `pronounce.py` | For papers: Claude's list of how technical words are said, plus `pronunciations.txt`, turned into exact sounds for the voice |
 | `speech.py` | Kokoro speaks each chapter, and ffmpeg packages everything as an AAC `.m4b` with a chapter track |
 | `cli.py` | The command line, tying the steps together |
 

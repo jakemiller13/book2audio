@@ -4,6 +4,9 @@ models/
 ocr
 pdfpages
 
+# Personal pronunciation entries (see pronunciations.txt)
+pronunciations.local.txt
+
 # Generated audio and transcripts (the transcripts are the book's text)
 output/
 voice_samples/
