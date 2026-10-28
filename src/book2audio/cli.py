@@ -12,9 +12,9 @@ USAGE = """book2audio INPUT [INPUT ...] [options]
        book2audio --list-voices | --voice-samples"""
 
 EPILOG = """\
-INPUT can be photos, screenshots, a folder of them, or videos (.mov/.mp4) of you
-turning the pages. By default each run writes to output/: the audiobook (.m4b), the
-transcript (.md) and one-paragraph chapter summaries (.summary.md).
+INPUT is usually a video (.mov/.mp4) of you turning the pages. Photos, screenshots
+and folders of them work too. By default each run writes to output/: the audiobook
+(.m4b), the transcript (.md) and one-paragraph chapter summaries (.summary.md).
 
 Proofreading and summaries send the book's text to Claude through your `claude`
 login (Claude Code). Use --no-cleanup --no-summary to keep everything on your Mac.
@@ -28,7 +28,7 @@ examples:
 
 def parse_args():
     ap = argparse.ArgumentParser(prog="book2audio", usage=USAGE, epilog=EPILOG,
-                                 description="Turn photos or video of book pages into an audiobook.",
+                                 description="Turn a video of you turning a book's pages (or photos of them) into an audiobook.",
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("inputs", nargs="*", metavar="INPUT", help=argparse.SUPPRESS)
     ap.add_argument("-o", "--output", metavar="FILE",

@@ -1,4 +1,4 @@
-"""book2audio: photos, screenshots or video of printed book pages -> an audiobook (.m4b)
+"""book2audio: a video (or photos, or screenshots) of book pages -> an audiobook (.m4b)
 with chapter markers, plus a transcript and short chapter summaries.
 
 Use it only on books you own, public-domain books, or your own writing, and keep what it

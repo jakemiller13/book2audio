@@ -1,6 +1,6 @@
 # book2audio
 
-Turn photos, screenshots, or a video of printed book pages into an audiobook with chapter markers, to listen to on your phone. It also writes a transcript and a one-paragraph summary of each chapter, so you can catch up after a few days away from the book.
+Record a video of yourself turning a book's pages, and book2audio turns it into an audiobook with chapter markers to listen to on your phone. Photos and screenshots of pages work too. It also writes a transcript and a one-paragraph summary of each chapter, so you can catch up after a few days away from the book.
 
 ## Use it responsibly
 
@@ -8,7 +8,7 @@ book2audio is a personal hobby project for listening to books you could otherwis
 
 - **Only use it on books you have the right to copy for yourself:** books you own, books in the public domain, or your own writing.
 - **Keep what it makes to yourself.** The audiobook, transcript and summaries are copies of the book. Don't share, upload, post, or sell them.
-- It only works from pictures of printed pages. It doesn't read e-books or audiobook files, and it doesn't remove copy protection from anything.
+- It only works from recordings and images of pages: video, photos or screenshots. It doesn't open e-book, PDF or audiobook files, and it doesn't remove copy protection from anything.
 - Text recognition and the voice run on your Mac. Proofreading and summaries send the book's text to Claude (see [Proofreading and summaries](#proofreading-and-summaries)); turn them off with `--no-cleanup --no-summary` to keep everything on your Mac.
 
 This isn't legal advice. Copyright rules differ between countries, and you're responsible for how you use the tool.
