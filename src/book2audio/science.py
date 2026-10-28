@@ -36,6 +36,10 @@ ABBREVIATIONS = [
 RESPELLINGS = [                             # words the voice says wrong, spelled the way they sound
     (r"ac\(et\)yl", "acetyl"),              # deac(et)ylase: read every letter
     (r"([A-Z]{2,})acyl", r"\1 ace-il"),     # LGKacyl (a peptide with an acyl group)
+    (r"\b([Dd])eacetylase", r"\1e-a-setta-lace"),   # "dee-uh-SET-uh-lay-sus"
+    (r"\b([Dd])eacetyl", r"\1e-a-setta-l"),         # deacetylation, deacetylated
+    (r"\b([Ee])ukaryot(?=e|ic)", lambda m: ("Y" if m.group(1) == "E" else "y") + "ou-carry-ot"),  # "YOU-carry-otes"
+    (r"\b([Pp])rokaryot(?=e|ic)", r"\1ro-carry-ot"),                                              # "PRO-carry-otes"
     (r"\b([Dd])e(?=a(?:cyl|cetyl|mid|min)|lactyl)", r"\1e-"),   # deacylase: "dee-ACE...", not "dee-sil..."
     (r"(?<=cyl|tyl)ase", "ace"),            # -ases with an s sound: "dee-ace-il-ay-sus"
     (r"\b([Aa])cyl", lambda m: m.group(1) + "ce-il"),   # acyl: "ACE-il", not "a-KILL"
