@@ -67,6 +67,13 @@ LETTER_NAMES = dict(A="eigh", B="bee", C="see", D="dee", E="ee", F="ef", G="gee"
 PLURAL_ES = {"H", "S", "X"}
 
 
+def padded(m, words):
+    """Letter names set apart from digits they touch: 'R15HL1488' -> 'R15 aitch ell 1488'."""
+    s = m.string
+    return ((" " if m.start() and s[m.start() - 1].isdigit() else "") + words
+            + (" " if m.end() < len(s) and s[m.end()].isdigit() else ""))
+
+
 def spell_out(token):
     """'EM' -> 'ee em', 'MGEs' -> 'em gee ees', 'crRNA' -> 'see ar ar en eigh', 'BRCA1' -> 'bee ar see eigh 1'."""
     base, plural = (token[:-1], True) if re.search(r"[A-Z0-9]s$", token) else (token, False)
@@ -158,5 +165,8 @@ def speakable_science(text):
                lambda m: " ".join(s for s in (m.group(1), GREEK[m.group(2)], m.group(3)) if s), t)
     t = t.replace("−", "-")                                                     # a minus sign between labels
     t = re.sub(r"(?<=\w)_(?=\w)", " ", t)                                     # k_deg -> "k deg"
-    t = SPELL_TWO.sub(lambda m: spell_out(m.group()), t)                        # cryo-EM -> cryo-ee em
+    t = SPELL_TWO.sub(lambda m: padded(m, spell_out(m.group())), t)             # cryo-EM -> cryo-ee em
+    # Capitals glued into a name after a digit are letters of the name, not a Roman numeral:
+    # Cas10IVc -> "Cas10 eye vee c" (a standalone "type IV" became "type 4" above)
+    t = re.sub(r"\b([A-Za-z]+\d+)([A-Z]{2,})(?=[a-z]?\d*(?![A-Za-z]))", lambda m: f"{m.group(1)} {spell_out(m.group(2))} ", t)
     return re.sub(r"\s+", " ", t).strip()
