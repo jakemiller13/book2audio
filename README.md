@@ -17,7 +17,7 @@ This isn't legal advice. Copyright rules differ between countries, and you're re
 
 - A Mac (tested on macOS 27 with Apple silicon; recent versions should work). Text recognition uses Apple's Vision framework, so it doesn't run on Windows or Linux.
 - Xcode Command Line Tools: run `xcode-select --install` if you don't have them.
-- Python 3.10 or newer.
+- Python 3.12 or 3.13 (the voice packages don't support 3.14 yet). If you don't have one: `brew install python@3.13`. `setup.sh` finds it even if your default `python3` is a different version.
 - [Homebrew](https://brew.sh), or ffmpeg already installed.
 - About 1 GB of free disk space (the voice model is ~340 MB).
 - For proofreading and summaries: [Claude Code](https://claude.com/claude-code) (the `claude` command), logged in to your Claude account. Without it, book2audio still works and skips those two steps.
@@ -148,7 +148,8 @@ The code is in `src/book2audio/`:
 
 ## Troubleshooting
 
-- **"book2audio isn't fully set up yet"**, or a Python error after moving the folder: run `./setup.sh` again.
+- **"book2audio isn't fully set up yet"**, or a Python error after moving the folder or upgrading Python: run `./setup.sh` again.
+- **"Python 3.12 or 3.13 is needed":** run `brew install python@3.13`, then `./setup.sh`.
 - **"Couldn't compile the OCR helper":** run `xcode-select --install`, then `./setup.sh`.
 - **Pages missing or out of order:** re-shoot the pages the run lists, slower, and pass both recordings in one run.
 - **No proofreading or summaries:** install Claude Code and run `claude` once to log in.
@@ -163,8 +164,9 @@ book2audio doesn't include any of these in the repository; `setup.sh` downloads 
 | [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx) | Running Kokoro | MIT |
 | [ONNX Runtime](https://github.com/microsoft/onnxruntime) | Running the model | MIT |
 | [espeak-ng](https://github.com/espeak-ng/espeak-ng) (via espeakng-loader) | Pronunciation | GPL-3.0 |
+| [phonemizer](https://github.com/bootphon/phonemizer) | Pronunciation (used by kokoro-onnx) | GPL-3.0 |
 | [FFmpeg](https://ffmpeg.org) (via Homebrew) | Encoding the `.m4b` | LGPL/GPL |
-| NumPy, soundfile | Audio arrays, WAV files | BSD-3-Clause |
+| NumPy, soundfile, and their dependencies | Audio arrays, WAV files | BSD/MIT-style |
 
 Apple, Mac, macOS, iPhone, Apple Books and CarPlay are trademarks of Apple Inc. Claude and Claude Code are trademarks of Anthropic. BookPlayer is a third-party app. book2audio is an independent hobby project. It isn't affiliated with, sponsored by, or endorsed by any of these companies or projects.
 

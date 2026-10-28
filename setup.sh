@@ -14,9 +14,15 @@ die() { echo "Setup stopped: $*" >&2; exit 1; }
 Move the folder somewhere shorter, such as ~/book2audio, and run ./setup.sh again."
 xcode-select -p >/dev/null 2>&1 && command -v swiftc >/dev/null ||
   die "the Xcode Command Line Tools are missing. Run:  xcode-select --install  then run ./setup.sh again."
-command -v python3 >/dev/null || die "python3 is missing. Install Python 3.10 or newer (python.org or Homebrew)."
-python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' ||
-  die "Python 3.10 or newer is needed; python3 is $(python3 -V 2>&1)."
+# The voice packages need Python 3.12 or 3.13 (not yet 3.14).
+PYTHON=
+for c in python3.13 python3.12 python3; do
+  if command -v "$c" >/dev/null && "$c" -c 'import sys; sys.exit(not (3, 12) <= sys.version_info < (3, 14))' 2>/dev/null; then
+    PYTHON=$(command -v "$c"); break
+  fi
+done
+[ -n "$PYTHON" ] || die "Python 3.12 or 3.13 is needed (python3 here is $(python3 -V 2>&1 || echo missing)).
+Install it with:  brew install python@3.13  then run ./setup.sh again."
 if ! command -v ffmpeg >/dev/null; then
   command -v brew >/dev/null || die "ffmpeg is missing. Install Homebrew (https://brew.sh), then run ./setup.sh again."
   echo "Installing ffmpeg with Homebrew..."
@@ -25,10 +31,10 @@ fi
 
 # --- Python environment (rebuilt if missing, broken, or the folder has moved)
 if [ ! -x .venv/bin/python ] || [ "$(cat .venv/.location 2>/dev/null)" != "$DIR" ] ||
-   ! .venv/bin/python -c 'import sys' 2>/dev/null; then
+   ! .venv/bin/python -c 'import sys; sys.exit(not (3, 12) <= sys.version_info < (3, 14))' 2>/dev/null; then
   echo "Creating Python environment..."
   rm -rf .venv
-  python3 -m venv .venv
+  "$PYTHON" -m venv .venv
   echo "$DIR" > .venv/.location
 fi
 .venv/bin/python -m pip install -q --upgrade pip

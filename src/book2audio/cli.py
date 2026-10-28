@@ -13,8 +13,8 @@ USAGE = """book2audio INPUT [INPUT ...] [options]
 
 EPILOG = """\
 INPUT can be photos, screenshots, a folder of them, or videos (.mov/.mp4) of you
-turning the pages. Each run writes to output/: the audiobook (.m4b), the transcript
-(.md) and one-paragraph chapter summaries (.summary.md).
+turning the pages. By default each run writes to output/: the audiobook (.m4b), the
+transcript (.md) and one-paragraph chapter summaries (.summary.md).
 
 Proofreading and summaries send the book's text to Claude through your `claude`
 login (Claude Code). Use --no-cleanup --no-summary to keep everything on your Mac.
