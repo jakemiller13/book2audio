@@ -5,7 +5,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import ROOT, capture, claude, layout, ordering, speech, text
+from . import ROOT, capture, claude, layout, ordering, pronounce, speech, text
 
 USAGE = """book2audio INPUT [INPUT ...] [options]
        book2audio --summarize TRANSCRIPT.md
@@ -15,6 +15,8 @@ EPILOG = """\
 INPUT is usually a video (.mov/.mp4) of you turning the pages. Photos, screenshots
 and folders of them work too. By default each run writes to output/: the audiobook
 (.m4b), the transcript (.md) and one-paragraph chapter summaries (.summary.md).
+Give a transcript (.md) as INPUT to make its audiobook again without redoing the
+OCR and proofreading, e.g. after changing --pronunciations or the voice.
 
 Proofreading and summaries send the book's text to Claude through your `claude`
 login (Claude Code). Use --no-cleanup --no-summary to keep everything on your Mac.
@@ -23,6 +25,7 @@ examples:
   ./book2audio ~/Downloads/IMG_1234.MOV
   ./book2audio ~/Desktop/chapter32/ --voice george --speak-summary
   ./book2audio --summarize "output/My Book - Ch 20-21.md"
+  ./book2audio "output/My Book - Ch 20-21.md" --pronunciations my-book.txt
 """
 
 
@@ -42,6 +45,9 @@ def parse_args():
     g.add_argument("--list-voices", action="store_true", help="list the voices and exit")
     g.add_argument("--voice-samples", action="store_true",
                    help="write a short clip of each suggested voice to voice_samples/ and exit")
+    g.add_argument("--pronunciations", metavar="FILE", action="append",
+                   help="how to say particular words, one per line:  Zarathel = ZAR-uh-thel  "
+                        "(see README; give it more than once to combine lists)")
 
     g = ap.add_argument_group("Claude (proofreading and summaries)")
     g.add_argument("--no-cleanup", action="store_true",
@@ -64,6 +70,14 @@ def parse_args():
         ap.error("--summarize takes a transcript on its own, without other inputs")
     if not (args.inputs or args.summarize or args.list_voices or args.voice_samples):
         ap.error("give at least one photo, folder or video (see --help)")
+    args.transcript = any(Path(a).suffix.lower() == ".md" for a in args.inputs)
+    if args.transcript:
+        if len(args.inputs) > 1:
+            ap.error("give a transcript (.md) on its own, without photos or videos")
+        if not Path(args.inputs[0]).expanduser().is_file():
+            ap.error(f"not found: {args.inputs[0]}")
+        if args.text_only:
+            ap.error("a transcript is already text; --text-only doesn't apply to it")
     return args
 
 
@@ -96,6 +110,9 @@ def main():
         return speech.write_voice_samples()
 
     voice = speech.resolve_voice(args.voice)   # check before the slow steps
+    pron = pronounce.load(args.pronunciations)
+    if args.transcript:
+        return narrate_transcript(args, voice, pron)
     use_claude = not (args.no_cleanup and args.no_summary)
     if use_claude and not claude.available():
         if args.speak_summary:
@@ -154,10 +171,42 @@ def main():
     if args.text_only:
         return
 
-    print(f"Synthesizing speech ({voice})...", file=sys.stderr)
     tags = {"title": f"{title} - {contents}" if title else out.stem, "album": title or out.stem,
             "artist": author, "album_artist": author}
-    chapters = speech.synthesize(blocks, out, voice, tags, summaries if args.speak_summary else None)
+    narrate(blocks, out, voice, tags, summaries if args.speak_summary else None, pron)
+
+
+def narrate_transcript(args, voice, pron):
+    """A transcript (.md) from an earlier run, read aloud again without redoing the OCR and
+    proofreading: for trying new pronunciations, a different voice, or your own text edits."""
+    md = Path(args.inputs[0]).expanduser()
+    blocks = text.markdown_to_blocks(md.read_text())
+    summaries = None
+    if args.speak_summary:
+        summary_md = md.with_name(md.stem + ".summary.md")
+        if not summary_md.is_file():
+            sys.exit(f"--speak-summary: no summaries found at {summary_md}")
+        summaries = read_summaries(summary_md)
+    out = Path(args.output).expanduser() if args.output else md.with_suffix(".m4b")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    title = args.title or (md.stem.split(" - ")[0] if " - " in md.stem else md.stem)
+    tags = {"title": md.stem, "album": title, "artist": args.author, "album_artist": args.author}
+    narrate(blocks, out, voice, tags, summaries, pron)
+
+
+def read_summaries(path):
+    """[(chapter title, summary)] from a .summary.md written by an earlier run."""
+    sections = re.split(r"^## ", path.read_text(), flags=re.M)[1:]
+    return [(head.strip(), body.strip()) for head, _, body in (s.partition("\n") for s in sections)]
+
+
+def narrate(blocks, out, voice, tags, summaries, pron):
+    print(f"Synthesizing speech ({voice})...", file=sys.stderr)
+    if pron:
+        used = pron.used_in(text.blocks_to_markdown(blocks))
+        print(f"Pronunciations: {len(used)} of the {len(pron.entries)} listed words are in this text",
+              file=sys.stderr)
+    chapters = speech.synthesize(blocks, out, voice, tags, summaries, pron)
     print(f"Audio: {out}  ({chapters[-1][2] / 60:.0f} min)", file=sys.stderr)
     for name, start, _ in chapters:
         print(f"  {int(start // 60):3d}:{int(start % 60):02d}  {name}", file=sys.stderr)
