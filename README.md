@@ -72,6 +72,12 @@ The results go in `output/`, named from what was read:
 
 # Summaries for a transcript you already have
 ./book2audio --summarize "output/My Book - Ch 20-21.md"
+
+# Say the book's invented names your way (see Pronunciations below)
+./book2audio ~/Downloads/IMG_1234.MOV --pronunciations ~/Books/my-book.txt
+
+# Make the audiobook again from a transcript, e.g. after changing the list or the voice
+./book2audio "output/My Book - Ch 20-21.md" --pronunciations ~/Books/my-book.txt
 ```
 
 If pages are missing between or within recordings, the run prints which page numbers to re-shoot. Run `./book2audio --help` for the full list of options.
@@ -81,6 +87,7 @@ If pages are missing between or within recordings, the run prints which page num
 | `--voice NAME` | Narrator, e.g. `am_michael` or just `michael`. Default `am_michael` |
 | `--list-voices` | Lists every voice |
 | `--voice-samples` | Writes a short clip of each suggested voice to `voice_samples/` and opens the folder |
+| `--pronunciations FILE` | How to say particular words (see [Pronunciations](#pronunciations)). Give it more than once to combine lists; a later list wins |
 | `--speak-summary` | Also reads each chapter's summary aloud, as a separate "Chapter 20 – Summary" chapter right after it |
 | `--summarize FILE.md` | Writes summaries for an existing transcript (saved next to it as `.summary.md`), then stops |
 | `--no-cleanup` | Skips proofreading |
@@ -88,6 +95,7 @@ If pages are missing between or within recordings, the run prints which page num
 | `-o FILE` | Output file. By default it's named from the contents, e.g. `output/<Book> - Ch 20-21.m4b` |
 | `--title`, `--author` | Book title and author tags. By default they're read from the running heads (author on left-hand pages, title on right-hand pages). Use these for a single photo or a book laid out differently |
 | `--text-only` | Writes the transcript and summaries, with no audio |
+| `INPUT.md` | A transcript from an earlier run: makes its audiobook again without redoing text recognition and proofreading (add `--speak-summary` to use its `.summary.md`). You can also edit the transcript first |
 | `--video-every S` | Seconds between sampled video frames (default 0.5) |
 
 Text recognition results are cached in `~/Library/Caches/book2audio`, so running the same recording again (with a different voice, say) skips that step. Delete the folder to clear the cache.
@@ -106,6 +114,25 @@ If `claude` isn't installed, book2audio says so and carries on without these ste
 Run `./book2audio --voice-samples` to hear the suggested narrators, or `./book2audio --list-voices` for all of them. Kokoro voice names start with a code: `am_` American male, `af_` American female, `bm_`/`bf_` British male/female. Good narrators to try: `am_michael`, `am_fenrir`, `am_onyx`, `bm_george`, `bm_fable`, `bm_lewis`, `af_heart`, `bf_emma`. You can give just the name part, e.g. `--voice fenrir`.
 
 There's no speed option: audiobook players do variable speed better, and you can change it while you listen. Kokoro renders at about 6× real time on an M3 Pro (a 25-minute chapter takes about 4 minutes).
+
+### Pronunciations
+
+The voice works out unfamiliar words from their spelling, so invented names and words in other languages can come out wrong. A pronunciation list is a text file with one word per line, `word = how it sounds`:
+
+```text
+# My book
+Zarathel = ZAR-uh-thel
+Ysolde = ee-ZOHLD-uh
+Kaer = KAIR
+Vhaelin = /vˈeɪlɪn/
+HQ = letters
+```
+
+- **Respelling** (the easy way): syllables split by hyphens, the stressed syllable in CAPITALS (with none in capitals, the first syllable is stressed). Spell the sounds the way they're commonly respelled: `ay` as in say, `ah` as in father, `ee` as in see, `eh` as in bed, `ih` as in sit, `oh` as in go, `oo` as in food, `uh` as in cup, `ow` as in cow, `oy` as in boy, `eye` or `ye` as in eye, `air` as in hair, `ar` as in car, `or` as in for, `er` as in her; `sh`, `ch`, `th`, `zh` (as in vision), `kh` (as in loch), `j` as in jam, `g` always hard. A single vowel letter is short (`a` as in cat, `e` as in bed, `i` as in sit, `o` as in hot, `u` as in cup), and a final `e` makes it long, as in `vice`, `ace`, `rope`.
+- **IPA** between slashes, for exact control: `/vˈeɪlɪn/`, with `ˈ` before the stressed vowel.
+- **`letters`** to spell a word out letter by letter.
+
+Words match whatever their capitals, and the possessive and plural come along (`Zarathel's`, `Zarathels`). Lines starting with `#` are notes. The run says how many of the listed words appear in the text, so a typo in a name shows up as a lower count. Keep one list per book and pass it with every recording. To try a change, give the transcript from `output/` as the input instead of the video: the audio is made again in a few minutes, without the text recognition and proofreading.
 
 ### Chapters
 
@@ -143,6 +170,7 @@ The code is in `src/book2audio/`:
 | `ordering.py` | Matches the many views of each page by their text and keeps the clearest. Page numbers are decided by vote, with evidence from the facing page. A read page number is ignored unless another page has a number close to it, which filters misreads like "867" while still allowing recordings of separate parts of the book |
 | `text.py` | Rebuilds paragraphs and writes the Markdown transcript |
 | `claude.py` | Proofreading and summaries, through `claude -p` |
+| `pronounce.py` | Reads `--pronunciations` lists and turns respellings into the sounds the voice speaks |
 | `speech.py` | Kokoro speaks each chapter, and ffmpeg packages everything as an AAC `.m4b` with a chapter track |
 | `cli.py` | The command line, tying the steps together |
 
