@@ -22,7 +22,11 @@ def clean_line(t):
 def sentence_case_lead_in(t):
     """Chapters often open in small caps: 'IT WAS THE BEST of times' -> 'It was the best of times',
     '"HOLD ON!" ALICE CRIED, running' -> '"Hold on!" alice cried, running' (names lose their capital)."""
-    t = t.strip()
+    # OCR often reads a small-caps I as lowercase: 'MORNiNG' -> 'MORNING'
+    t = re.sub(r"\b[A-Zi'’]*[A-Z][A-Zi'’]*\b", lambda m: m.group(0).upper(), t.strip())
+    if not re.search("[a-z]", t) and sum(c.isalpha() for c in t) >= 4:
+        t += " x"   # the whole first line is in capitals: treat it all as the lead-in
+        return sentence_case_lead_in(t)[:-2]
     m = re.match(r"""^((?:["']?[A-Z][A-Z'!?,.;:]*["']?\s+)*["']?[A-Z][A-Z'!?,.;:]+["']?)(?=\s+[a-z])""", t)
     if not m or sum(c.isalpha() for c in m.group(1)) < 4:
         return t
