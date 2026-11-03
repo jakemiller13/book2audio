@@ -84,7 +84,9 @@ If pages are missing between or within recordings, the run prints which page num
 
 | Option | What it does |
 |---|---|
-| `--voice NAME` | Narrator, e.g. `am_michael` or just `michael`. Default `am_michael` |
+| `--voice NAME` | Narrator, e.g. `am_michael` or just `michael`, or a mix such as `lewis:70+onyx:30` (see [Voices](#voices)). Default `am_michael` |
+| `--accent american\|british` | Pronunciation rules. Default: the accent of the main `--voice` |
+| `--speed N` | Speaking speed, e.g. `0.9`. Default `1` |
 | `--list-voices` | Lists every voice |
 | `--voice-samples` | Writes a short clip of each suggested voice to `voice_samples/` and opens the folder |
 | `--pronunciations FILE` | How to say particular words (see [Pronunciations](#pronunciations)). Give it more than once to combine lists; a later list wins |
@@ -113,7 +115,9 @@ If `claude` isn't installed, book2audio says so and carries on without these ste
 
 Run `./book2audio --voice-samples` to hear the suggested narrators, or `./book2audio --list-voices` for all of them. Kokoro voice names start with a code: `am_` American male, `af_` American female, `bm_`/`bf_` British male/female. Good narrators to try: `am_michael`, `am_fenrir`, `am_onyx`, `bm_george`, `bm_fable`, `bm_lewis`, `af_heart`, `bf_emma`. You can give just the name part, e.g. `--voice fenrir`.
 
-There's no speed option: audiobook players do variable speed better, and you can change it while you listen. Kokoro renders at about 6× real time on an M3 Pro (a 25-minute chapter takes about 4 minutes).
+You can also mix voices. `--voice lewis:70+onyx:30` blends the two voices' sound, 70% to 30% (the numbers are relative, so `7+3` means the same; leave them out for equal parts). The voice and the accent are separate: the accent comes from the pronunciation rules, which follow the main voice unless you pass `--accent`. So `--voice lewis --accent american` keeps that voice but with American pronunciation.
+
+`--speed` changes how the narrator speaks, not just the playback rate: at `0.9` the narrator takes their time over each word, which can suit a grand style. Your audiobook player's speed control is still the better way to simply go faster or slower. Kokoro renders at about 6× real time on an M3 Pro (a 25-minute chapter takes about 4 minutes).
 
 ### Pronunciations
 
@@ -136,7 +140,7 @@ Words match whatever their capitals, and the possessive and plural come along (`
 
 ### Chapters
 
-A page is treated as a chapter opening when it has a "Chapter N" line (or Prologue/Epilogue/Part/Interlude) near the top, an optional title under it, and then a tall blank band before the text starts. That's a common layout; a book that opens chapters differently may need `detect_chapter_opening` in `src/book2audio/layout.py` adjusted.
+A page is treated as a chapter opening when it has a "Chapter N" line (or Prologue/Epilogue/Part/Interlude, or a Roman numeral such as "IV" on its own) near the top, an optional title under it, and then a tall blank band before the text starts. That's a common layout; a book that opens chapters differently may need `detect_chapter_opening` in `src/book2audio/layout.py` adjusted.
 
 A recording usually starts partway through a chapter. That opening text gets its own chapter, named from the next chapter's number, e.g. "Chapter 31 (continued)", or "Previous chapter (continued)" if no numbered chapter follows.
 

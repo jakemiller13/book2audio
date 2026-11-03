@@ -41,7 +41,12 @@ def parse_args():
 
     g = ap.add_argument_group("voice")
     g.add_argument("--voice", metavar="NAME",
-                   help=f"narrator, e.g. am_michael or just michael (default {speech.DEFAULT_VOICE})")
+                   help=f"narrator, e.g. am_michael or just michael (default {speech.DEFAULT_VOICE}), "
+                        "or a mix of voices with weights, e.g. lewis:70+onyx:30")
+    g.add_argument("--accent", choices=["american", "british"],
+                   help="pronunciation (default: the accent of the main --voice)")
+    g.add_argument("--speed", type=float, metavar="N",
+                   help="speaking speed, e.g. 0.9 for a slower, more measured delivery (default 1)")
     g.add_argument("--list-voices", action="store_true", help="list the voices and exit")
     g.add_argument("--voice-samples", action="store_true",
                    help="write a short clip of each suggested voice to voice_samples/ and exit")
@@ -109,7 +114,7 @@ def main():
     if args.voice_samples:
         return speech.write_voice_samples()
 
-    voice = speech.resolve_voice(args.voice)   # check before the slow steps
+    voice = speech.resolve_voice(args.voice, args.accent, args.speed)   # check before the slow steps
     pron = pronounce.load(args.pronunciations)
     if args.transcript:
         return narrate_transcript(args, voice, pron)

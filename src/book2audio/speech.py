@@ -43,10 +43,48 @@ def all_voices():
         return sorted(n for n in v.files if n[:1] in ACCENTS and n[1:2] in GENDERS)
 
 
-def resolve_voice(name):
-    """Accept the full name ('am_michael') or just the given name ('michael')."""
-    name = (name or DEFAULT_VOICE).strip().lower()
+class Voice:
+    """A narrator: one Kokoro voice, or a mix of several (their style vectors averaged by
+    weight), with an accent (which pronunciation rules espeak uses) and a speaking speed."""
+    def __init__(self, parts, lang, speed=1.0):
+        self.parts, self.lang, self.speed = parts, lang, speed
+
+    def __str__(self):
+        name = " + ".join(f"{v} {w:.0%}" for v, w in self.parts) if len(self.parts) > 1 else self.parts[0][0]
+        extras = [("American" if self.lang == "en-us" else "British") + " accent" if self.lang != default_lang(self.parts) else "",
+                  f"speed {self.speed:g}" if self.speed != 1 else ""]
+        return ", ".join([name] + [e for e in extras if e])
+
+
+def default_lang(parts):
+    """The accent of the most heavily weighted voice in the mix."""
+    return "en-gb" if max(parts, key=lambda p: p[1])[0][:1] == "b" else "en-us"
+
+
+def resolve_voice(spec, accent=None, speed=None):
+    """--voice: 'am_michael', just 'michael', or a mix like 'lewis:70+onyx:30' (weights are
+    relative, so 7+3 or 0.7+0.3 mean the same; leave them out for equal parts)."""
     voices = all_voices()
+    parts = []
+    for item in (spec or DEFAULT_VOICE).lower().replace(" ", "").split("+"):
+        name, _, weight = item.partition(":")
+        try:
+            w = float(weight.rstrip("%")) if weight else 1.0
+        except ValueError:
+            sys.exit(f"In --voice {spec!r}: {weight!r} isn't a number (e.g. lewis:70+onyx:30)")
+        if w <= 0:
+            sys.exit(f"In --voice {spec!r}: each weight must be more than 0")
+        parts.append((voice_name(name, voices), w))
+    total = sum(w for _, w in parts)
+    parts = [(v, w / total) for v, w in parts]
+    lang = {"american": "en-us", "british": "en-gb", None: default_lang(parts)}[accent]
+    if speed is not None and not 0.5 <= speed <= 2:
+        sys.exit("--speed must be between 0.5 and 2")
+    return Voice(parts, lang, speed or 1.0)
+
+
+def voice_name(name, voices):
+    """Accept the full name ('am_michael') or just the given name ('michael')."""
     if name in voices:
         return name
     matches = [v for v in voices if v.split("_", 1)[1] == name]
@@ -70,7 +108,8 @@ def list_voices():
     print("\nAll voices:")
     for v in voices:
         print(f"  {v:<14} {describe_voice(v)}")
-    print("\nUse one with --voice, e.g.  --voice bm_george  (or just  --voice george)")
+    print("\nUse one with --voice, e.g.  --voice bm_george  (or just  --voice george)."
+          "\nMix voices with weights, e.g.  --voice lewis:70+onyx:30 --accent american")
 
 
 def speakable(text):
@@ -108,20 +147,24 @@ class KokoroVoice:
         onnxruntime.set_default_logger_severity(3)   # errors only
         from kokoro_onnx import Kokoro
         self.k = Kokoro(str(MODEL_FILE), str(VOICES_FILE))
-        self.voice = voice
+        if isinstance(voice, str):
+            voice = Voice([(voice, 1.0)], default_lang([(voice, 1.0)]))
+        self.voice = (voice.parts[0][0] if len(voice.parts) == 1
+                      else sum(w * self.k.get_voice_style(v) for v, w in voice.parts))
+        self.lang, self.speed = voice.lang, voice.speed
         self.pronouncer = pronouncer   # --pronunciations: exact sounds for listed words (pronounce.py)
-        self.lang = "en-gb" if voice[:1] == "b" else "en-us"
         self.rate = 24000
 
     def speak(self, text):
         text = speakable(text)
+        opts = dict(voice=self.voice, lang=self.lang, speed=self.speed)
         if self.pronouncer:
             phonemes = self.pronouncer.phonemes(text, self.k.tokenizer, self.lang)
             if not phonemes.strip():
                 return self.silence(0.1)
-            samples, self.rate = self.k.create(phonemes, voice=self.voice, lang=self.lang, is_phonemes=True)
+            samples, self.rate = self.k.create(phonemes, is_phonemes=True, **opts)
         else:
-            samples, self.rate = self.k.create(text, voice=self.voice, lang=self.lang)
+            samples, self.rate = self.k.create(text, **opts)
         return np.asarray(samples, dtype=np.float32)
 
     def silence(self, seconds):

@@ -335,14 +335,32 @@ def analyze_page(page, running_heads):
 
 
 CHAPTER_RE = re.compile(r"(?i)^\s*(chapter|prologue|epilogue|interlude|part)\b")
+# Some books number chapters with a Roman numeral alone ("IV"). OCR sometimes reads
+# the I's as dotted capitals ("İİİ").
+ROMAN_RE = re.compile(r"(?i)^\s*([IVXLC]{1,7})\s*$")
+ROMAN_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100}
+
+
+def roman_chapter(text):
+    """'IV' (or OCR's 'İv') -> 'Chapter 4'; None for anything else."""
+    m = ROMAN_RE.match(text.replace("İ", "I").replace("ı", "i"))
+    if not m:
+        return None
+    digits = [ROMAN_VALUES[c] for c in m.group(1).upper()]
+    n = sum(-d if d < nxt else d for d, nxt in zip(digits, digits[1:] + [0]))
+    return f"Chapter {n}" if 0 < n < 200 else None
+
+
+def is_chapter_label(text):
+    return bool(CHAPTER_RE.match(text)) or roman_chapter(text) is not None
 
 
 def detect_chapter_opening(page):
-    """A chapter-opening page: a "Chapter N" line near the top, an optional title block,
-    then a tall blank band before the body text. Returns (title or None, heading lines)."""
+    """A chapter-opening page: a "Chapter N" (or Roman numeral) line near the top, an optional
+    title block, then a tall blank band before the body text. Returns (title or None, heading lines)."""
     lines = sorted(page["lines"], key=lambda l: l["ly"])
     sp = page["spacing"]
-    start = next((i for i, l in enumerate(lines[:3]) if CHAPTER_RE.match(l["text"])), None)
+    start = next((i for i, l in enumerate(lines[:3]) if is_chapter_label(l["text"])), None)
     if start is None:
         return None, []
     block = [lines[start]]
@@ -353,7 +371,7 @@ def detect_chapter_opening(page):
     rest = lines[start + len(block):]
     if not rest or rest[0]["ly"] - block[-1]["ly"] < 4 * sp:
         return None, []  # no blank band: just a sentence that starts with "Chapter"
-    label = smart_title(block[0]["text"].strip())
+    label = roman_chapter(block[0]["text"]) or smart_title(block[0]["text"].strip())
     title = smart_title(" ".join(l["text"].strip() for l in block[1:]))
     return (f"{label}: {title}" if title else label), block
 
@@ -401,8 +419,9 @@ def detect_running_heads(pages):
         for r in p["lines"]:
             t = r["text"].strip()
             n = norm(t)
-            if not in_header(r, p) or re.fullmatch(r"\d{1,4}", t) or not n or CHAPTER_RE.match(t):
-                continue
+            if (not in_header(r, p) or re.fullmatch(r"\d{1,4}", t) or not n or is_chapter_label(t)
+                    or r["rx"] - r["lx"] > 0.75 * text_width(p)):
+                continue   # a full-width line at the top is body text, however often it repeats
             g = next((g for g in groups if any(difflib.SequenceMatcher(None, n, v).ratio() > 0.75
                                                for v in g[0])), None)
             if g is None:
@@ -411,6 +430,12 @@ def detect_running_heads(pages):
                 g[0].add(n)
                 g[1].add(pid)
     return {v for variants, pids in groups if len(pids) >= 2 for v in variants}
+
+
+def text_width(page):
+    """The usual width of a full line of body text on this page."""
+    widths = [l["rx"] - l["lx"] for l in page["lines"] if len(l["text"]) > 40]
+    return statistics.median(widths) if widths else 1.0
 
 
 def book_tags(pages, heads):
@@ -422,5 +447,7 @@ def book_tags(pages, heads):
             t = " ".join(l["text"].split())
             if in_header(l, p) and not re.fullmatch(r"\d{1,4}", t) and is_running_head(t, heads):
                 by_side[p["side"]][t] += 1
-    pick = lambda c: c.most_common(1)[0][0] if c else None
+    def pick(c):   # running heads are often in capitals: "JANE AUSTEN" -> "Jane Austen"
+        t = c.most_common(1)[0][0] if c else None
+        return smart_title(t) if t and t.isupper() else t
     return pick(by_side[1]), pick(by_side[0])   # (title, author)
