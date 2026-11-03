@@ -335,14 +335,17 @@ def analyze_page(page, running_heads):
         # line. Flagged so the run can say which page to retake.
         r["cut_off"] = r["gap"] > 0.15 * text_width(page)
     page["body"] = body
-    page["quality"] = sum(len(r["text"]) * r["conf"] for r in body) * page["legibility"] ** 2
+    # A row with a hole in it is mixed-up text (often a page caught mid-turn, its text joined
+    # to this page's): it counts against the view, so a clean view of the page wins.
+    page["quality"] = sum(len(r["text"]) * r["conf"] * (-1 if r["cut_off"] else 1)
+                          for r in body) * page["legibility"] ** 2
     return page
 
 
 CHAPTER_RE = re.compile(r"(?i)^\s*(chapter|prologue|epilogue|interlude|part)\b")
 # Some books number chapters with a Roman numeral alone ("IV"). OCR sometimes reads
 # the I's as dotted capitals ("İİİ").
-ROMAN_RE = re.compile(r"(?i)^\s*([IVXLC]{1,7})\s*$")
+ROMAN_RE = re.compile(r"(?i)^[^A-Za-z0-9]*([IVXLC]{1,7})[^A-Za-z0-9]*$")   # specks around it: "_ IV", "• IV"
 ROMAN_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100}
 
 
