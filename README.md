@@ -140,7 +140,7 @@ Words match whatever their capitals, and the possessive and plural come along (`
 
 ### Chapters
 
-A page is treated as a chapter opening when it has a "Chapter N" line (or Prologue/Epilogue/Part/Interlude, or a Roman numeral such as "IV" on its own) near the top, an optional title under it, and then a tall blank band before the text starts. That's a common layout; a book that opens chapters differently may need `detect_chapter_opening` in `src/book2audio/layout.py` adjusted.
+A page is treated as a chapter opening when it has a "Chapter N" line (or Prologue/Epilogue/Part/Interlude, or a Roman numeral such as "IV" on its own) near the top, an optional title under it, and then a tall blank band before the text starts. In video, the numeral is small and often read in only one of a page's frames; that's enough. That's a common layout; a book that opens chapters differently may need `detect_chapter_opening` in `src/book2audio/layout.py` adjusted.
 
 A recording usually starts partway through a chapter. That opening text gets its own chapter, named from the next chapter's number, e.g. "Chapter 31 (continued)", or "Previous chapter (continued)" if no numbered chapter follows.
 
@@ -169,8 +169,8 @@ The code is in `src/book2audio/`:
 
 | Module | Step |
 |---|---|
-| `capture.py`, `ocr.swift` | Runs Apple's Vision framework on each photo or video frame: on the full image, on each page cropped at the detected spine, and as a "fast" pass that catches short lines the accurate pass misses. Vision handles one image at a time per process, so several helper processes run in parallel |
-| `layout.py` | Splits each spread into pages; removes running heads, page numbers, text outside the page and blurry frames; orders lines on curved pages; finds paragraph indents, scene breaks and chapter openings |
+| `capture.py`, `ocr.swift` | Runs Apple's Vision framework on each photo or video frame: on the full image, on each page cropped at the detected spine, and as a "fast" pass that catches short lines the accurate pass misses. A photo taken sideways or upside down is turned upright first. Vision handles one image at a time per process, so several helper processes run in parallel |
+| `layout.py` | Splits each spread into pages; removes running heads, page numbers, text outside the page and blurry frames (and frames caught mid page-turn); orders lines on curved pages; finds paragraph indents, scene breaks and chapter openings |
 | `ordering.py` | Matches the many views of each page by their text and keeps the clearest. Page numbers are decided by vote, with evidence from the facing page. A read page number is ignored unless another page has a number close to it, which filters misreads like "867" while still allowing recordings of separate parts of the book |
 | `text.py` | Rebuilds paragraphs and writes the Markdown transcript |
 | `claude.py` | Proofreading and summaries, through `claude -p` |
