@@ -11,7 +11,7 @@ CONTINUED = "(continued)"
 
 def clean_line(t):
     t = t.strip()
-    t = t.replace("’", "'").replace("‘", "'")
+    t = t.replace("’", "'").replace("‘", "'").replace("İ", "I")   # OCR's dotted capital I
     t = re.sub("[“”«»„]", '"', t)
     t = re.sub(r"[©®*#•■]", "", t)
     t = re.sub(r'(^|\s)[iạ](?="[A-Z])', r"\1", t)   # OCR'd speck glued to an opening quote
@@ -22,8 +22,15 @@ def clean_line(t):
 def sentence_case_lead_in(t):
     """Chapters often open in small caps: 'IT WAS THE BEST of times' -> 'It was the best of times',
     '"HOLD ON!" ALICE CRIED, running' -> '"Hold on!" alice cried, running' (names lose their capital)."""
-    # OCR often reads a small-caps I as lowercase: 'MORNiNG' -> 'MORNING'
-    t = re.sub(r"\b[A-Zi'’]*[A-Z][A-Zi'’]*\b", lambda m: m.group(0).upper(), t.strip())
+    # OCR often reads some small capitals as lowercase ('MORNiNG', 'SUmmER', 'jAIR'): the lead-in
+    # runs to the last word with two or more capitals, if the line starts with such a word.
+    words = t.strip().split(" ")
+    capped = [i for i, w in enumerate(words) if sum(c.isupper() for c in w) >= 2]
+    if capped and capped[0] == 0:
+        words[:capped[-1] + 1] = [w.upper() for w in words[:capped[-1] + 1]]
+    t = " ".join(words)
+    if t.endswith("-") and t[-2:-1].isalpha():   # a word carried over to the next line
+        return sentence_case_lead_in(t[:-1]) + "-"
     if not re.search("[a-z]", t) and sum(c.isalpha() for c in t) >= 4:
         t += " x"   # the whole first line is in capitals: treat it all as the lead-in
         return sentence_case_lead_in(t)[:-2]

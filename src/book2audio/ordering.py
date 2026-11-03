@@ -97,6 +97,16 @@ def order_pages(pages):
 
 
 def best_view(cluster):
-    return max(cluster["members"], key=lambda p: p["quality"])
-
-
+    """The clearest view of the page. A small chapter numeral is often read in only one or two
+    of a page's frames, so if any frame found a chapter heading the page keeps it: from the
+    best of those frames if it is nearly as clear, otherwise carried over to the clearest one."""
+    members = cluster["members"]
+    view = max(members, key=lambda p: p["quality"])
+    opened = [p for p in members if p.get("chapter")]
+    if opened and not view.get("chapter"):
+        label = Counter(p["chapter"] for p in opened).most_common(1)[0][0]
+        best_opened = max(opened, key=lambda p: p["quality"])
+        if best_opened["quality"] >= 0.8 * view["quality"]:
+            view = best_opened
+        view["chapter"] = label
+    return view
