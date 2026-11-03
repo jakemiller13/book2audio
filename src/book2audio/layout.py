@@ -335,25 +335,41 @@ def analyze_page(page, running_heads):
         # line. Flagged so the run can say which page to retake.
         r["cut_off"] = r["gap"] > 0.15 * text_width(page)
     page["body"] = body
-    page["quality"] = sum(len(r["text"]) * r["conf"] for r in body) * page["legibility"] ** 2
+    # A row with a hole in it is mixed-up text (often a page caught mid-turn, its text joined
+    # to this page's): it counts against the view, so a clean view of the page wins.
+    page["quality"] = sum(len(r["text"]) * r["conf"] * (-1 if r["cut_off"] else 1)
+                          for r in body) * page["legibility"] ** 2
     return page
 
 
 CHAPTER_RE = re.compile(r"(?i)^\s*(chapter|prologue|epilogue|interlude|part)\b")
 # Some books number chapters with a Roman numeral alone ("IV"). OCR sometimes reads
 # the I's as dotted capitals ("İİİ").
-ROMAN_RE = re.compile(r"(?i)^\s*([IVXLC]{1,7})\s*$")
+ROMAN_RE = re.compile(r"(?i)^[^A-Za-z0-9]*([IVXLC]{1,7})[^A-Za-z0-9]*$")   # specks around it: "_ IV", "• IV"
 ROMAN_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100}
+# What OCR reads a numeral as: dotted and Cyrillic I's, Cyrillic Kha, a multiplication sign.
+ROMAN_LOOKALIKES = str.maketrans("İıІіїХх×", "IiIiiXxx")
 
 
 def roman_chapter(text):
     """'IV' (or OCR's 'İv') -> 'Chapter 4'; None for anything else."""
-    m = ROMAN_RE.match(text.replace("İ", "I").replace("ı", "i"))
+    m = ROMAN_RE.match(text.translate(ROMAN_LOOKALIKES))
     if not m:
         return None
     digits = [ROMAN_VALUES[c] for c in m.group(1).upper()]
     n = sum(-d if d < nxt else d for d, nxt in zip(digits, digits[1:] + [0]))
-    return f"Chapter {n}" if 0 < n < 200 else None
+    if not 0 < n < 200 or to_roman(n) != m.group(1).upper():
+        return None   # not a well-formed numeral: 'VILI' is a misread VIII, not 55
+    return f"Chapter {n}"
+
+
+def to_roman(n):
+    out = ""
+    for value, numeral in ((100, "C"), (90, "XC"), (50, "L"), (40, "XL"), (10, "X"), (9, "IX"),
+                           (5, "V"), (4, "IV"), (1, "I")):
+        out += numeral * (n // value)
+        n %= value
+    return out
 
 
 def is_chapter_label(text):

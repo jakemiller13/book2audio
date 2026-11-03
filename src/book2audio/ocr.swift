@@ -74,6 +74,9 @@ func recognizeAllPasses(_ image: CGImage, orientation: CGImagePropertyOrientatio
     if orientation != .up, let rotated = rotate(image, orientation) { upright = rotated }
     let w = upright.width, h = upright.height
     let full = recognize(upright, orientation: .up)
+    if let turn = turnNeeded(full, width: w, height: h), let turned = rotate(upright, turn) {
+        return recognizeAllPasses(turned, orientation: .up, source: source, time: time)
+    }
     var out = [Record(source: source, time: time, width: w, height: h, pass: "full", lines: full)]
     let halves = findGutter(full).map { g in [("left", 0.0, min(1, g + 0.06)), ("right", max(0, g - 0.06), 1.0)] } ?? []
     for (name, a, b) in halves {
@@ -90,6 +93,24 @@ func recognizeAllPasses(_ image: CGImage, orientation: CGImagePropertyOrientatio
     out.append(Record(source: source, time: time, width: w, height: h, pass: "fast",
                       lines: recognize(upright, orientation: .up, level: .fast)))
     return out
+}
+
+// A photo taken sideways or upside down: Vision still reads the words, but the page layout
+// (lines, columns, the spine) only makes sense upright. Most long lines running the same
+// wrong way say which way to turn the image.
+func turnNeeded(_ lines: [Line], width: Int, height: Int) -> CGImagePropertyOrientation? {
+    let long = lines.filter { $0.text.count > 15 }
+    guard long.count >= 6 else { return nil }
+    var votes: [CGImagePropertyOrientation: Int] = [:]
+    for l in long {
+        let dx = (l.rx - l.lx) * Double(width), dy = (l.ry - l.ly) * Double(height)
+        let turn: CGImagePropertyOrientation
+        if abs(dx) >= abs(dy) { turn = dx > 0 ? .up : .down }   // .down: upside down
+        else { turn = dy < 0 ? .right : .left }                 // reads bottom-to-top: turn clockwise
+        votes[turn, default: 0] += 1
+    }
+    guard let (turn, n) = votes.max(by: { $0.value < $1.value }), turn != .up, n * 10 >= long.count * 8 else { return nil }
+    return turn
 }
 
 func rotate(_ image: CGImage, _ orientation: CGImagePropertyOrientation) -> CGImage? {
