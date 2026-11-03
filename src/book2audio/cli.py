@@ -16,7 +16,8 @@ INPUT is usually a video (.mov/.mp4) of you turning the pages. Photos, screensho
 and folders of them work too. By default each run writes to output/: the audiobook
 (.m4b), the transcript (.md) and one-paragraph chapter summaries (.summary.md).
 Give a transcript (.md) as INPUT to make its audiobook again without redoing the
-OCR and proofreading, e.g. after changing --pronunciations or the voice.
+OCR and proofreading, e.g. after fixing a line in it; only the chapters that changed
+are read aloud again.
 
 Proofreading and summaries send the book's text to Claude through your `claude`
 login (Claude Code). Use --no-cleanup --no-summary to keep everything on your Mac.
@@ -86,6 +87,19 @@ def parse_args():
     return args
 
 
+def report_cut_off(pages):
+    """Lines that look covered or cut off in every frame: worth a retake while the book is open."""
+    hits = [(p["number"], r["text"]) for p in pages for r in p["body"] if r.get("cut_off")]
+    if not hits:
+        return
+    print(f"Text may be missing on {len(hits)} line(s), covered or cut off in every frame:", file=sys.stderr)
+    for num, line in hits:
+        where = f"page {num}" if num is not None else "a page without a number"
+        print(f"  {where}: ...{line[-60:]}", file=sys.stderr)
+    print("  Fix the line in the transcript (.md) and make the audio from it again, or record "
+          "that page again.", file=sys.stderr)
+
+
 def summarize_transcript(md_path):
     """--summarize: summaries for a transcript from an earlier run."""
     md = Path(md_path).expanduser()
@@ -143,6 +157,7 @@ def main():
     nums = [p["number"] for p in pages if p["number"] is not None]
     if nums:
         print(f"Pages {min(nums)}-{max(nums)} ({len(pages)} pages)", file=sys.stderr)
+    report_cut_off(pages)
 
     blocks = text.label_continued(text.build_text(pages))
     contents = text.describe_contents(blocks, pages)

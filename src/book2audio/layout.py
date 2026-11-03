@@ -250,6 +250,7 @@ def group_visual_rows(lines):
             "conf": min(p["conf"] for p in parts),
             "lx": parts[0]["lx"], "ly": parts[0]["ly"],
             "rx": parts[-1]["rx"], "ry": parts[-1]["ry"],
+            "gap": max([b["lx"] - a["rx"] for a, b in zip(parts, parts[1:])], default=0.0),
         })
     out.sort(key=functools.cmp_to_key(above))
     return out
@@ -329,6 +330,10 @@ def analyze_page(page, running_heads):
                 body.pop()
             else:
                 body[i]["scene_break"] = body[i]["para_start"] = True
+    for r in body:
+        # Text covered in every frame (a thumb, glare) leaves a hole in the middle of a
+        # line. Flagged so the run can say which page to retake.
+        r["cut_off"] = r["gap"] > 0.15 * text_width(page)
     page["body"] = body
     page["quality"] = sum(len(r["text"]) * r["conf"] for r in body) * page["legibility"] ** 2
     return page

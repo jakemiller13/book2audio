@@ -80,7 +80,7 @@ The results go in `output/`, named from what was read:
 ./book2audio "output/My Book - Ch 20-21.md" --pronunciations ~/Books/my-book.txt
 ```
 
-If pages are missing between or within recordings, the run prints which page numbers to re-shoot. Run `./book2audio --help` for the full list of options.
+If pages are missing between or within recordings, the run prints which page numbers to re-shoot. It also lists lines with a hole in them, where something (usually a thumb) covered the words in every frame, so you can retake that page while the book is still open, or type the missing words into the transcript and make the audio again. Run `./book2audio --help` for the full list of options.
 
 | Option | What it does |
 |---|---|
@@ -97,10 +97,10 @@ If pages are missing between or within recordings, the run prints which page num
 | `-o FILE` | Output file. By default it's named from the contents, e.g. `output/<Book> - Ch 20-21.m4b` |
 | `--title`, `--author` | Book title and author tags. By default they're read from the running heads (author on left-hand pages, title on right-hand pages). Use these for a single photo or a book laid out differently |
 | `--text-only` | Writes the transcript and summaries, with no audio |
-| `INPUT.md` | A transcript from an earlier run: makes its audiobook again without redoing text recognition and proofreading (add `--speak-summary` to use its `.summary.md`). You can also edit the transcript first |
+| `INPUT.md` | A transcript from an earlier run: makes its audiobook again without redoing text recognition and proofreading (add `--speak-summary` to use its `.summary.md`). You can also edit the transcript first. Only the chapters whose text, voice or pronunciations changed are read again, so fixing a line takes seconds to a minute |
 | `--video-every S` | Seconds between sampled video frames (default 0.5) |
 
-Text recognition results are cached in `~/Library/Caches/book2audio`, so running the same recording again (with a different voice, say) skips that step. Delete the folder to clear the cache.
+Text recognition results are cached in `~/Library/Caches/book2audio`, so running the same recording again (with a different voice, say) skips that step. Each chapter's audio is cached there too (about 80 MB per hour of audio), so making an audiobook again reuses every chapter that hasn't changed; chapter audio not used for 30 days is deleted. Delete the folder to clear the cache.
 
 ### Proofreading and summaries
 
