@@ -275,16 +275,18 @@ def robust_fit(ys, xs, deg=2):
 def analyze_page(page, running_heads):
     """Pull out page number / running head / chapter heading; mark paragraph starts."""
     page["number"] = None
+    drop_above_running_head(page, running_heads)
     page["chapter"], heading_lines = detect_chapter_opening(page)
     lines = []
     for l in page["lines"]:
         if any(l is h for h in heading_lines):
             continue
         t = l["text"].strip()
+        num, head = split_page_number(t)
         if in_header(l, page) and re.fullmatch(r"\d{1,4}", t):
             page["number"] = int(t)
-        elif in_header(l, page) and is_running_head(t, running_heads):
-            pass
+        elif in_header(l, page) and is_running_head(head, running_heads):
+            page["number"] = num if num is not None else page["number"]   # "212 JANE AUTHOR"
         else:
             lines.append(l)
 
@@ -397,6 +399,34 @@ def detect_chapter_opening(page):
     return (f"{label}: {title}" if title else label), block
 
 
+def split_page_number(t):
+    """A page number OCR'd as part of the running head: "212 JANE AUTHOR" -> (212, "JANE AUTHOR")."""
+    m = re.fullmatch(r"\s*(\d{1,4})\s+(\D.*?)\s*|\s*(\D.*?)\s+(\d{1,4})\s*", t)
+    if not m:
+        return None, t
+    return (int(m.group(1)), m.group(2)) if m.group(1) else (int(m.group(4)), m.group(3))
+
+
+def drop_above_running_head(page, heads):
+    """Text above the running head isn't on the page: a screen or papers behind the book. Left
+    in, it pushes the real head out of the header zone and can look like a chapter heading.
+    The lowest head-like line near the top is the page's own (the stray text is above it)."""
+    lines = sorted(page["lines"], key=lambda l: l["y0"])
+    sp = page["spacing"]
+    found = None
+    for l in lines[:6]:   # the stray text can be far above the page, so go by position
+        _, head = split_page_number(l["text"].strip())
+        if len(norm(head)) >= 8 and is_running_head(head, heads):
+            found = l
+    if found is None:
+        return
+    # Clearly above only: on a tilted page a body line can sit a little higher than the head.
+    keep = [l for l in page["lines"] if l["y0"] >= found["y0"] - 1.5 * sp]
+    if len(keep) < len(page["lines"]):
+        page["lines"] = keep
+        page["top"] = min(l["y0"] for l in keep)
+
+
 def in_header(line, page):
     """Running heads and page numbers sit in the first line or two at the top of the page."""
     return line["y0"] < page["top"] + 2 * page["spacing"]
@@ -450,7 +480,8 @@ def detect_running_heads(pages):
             else:
                 g[0].add(n)
                 g[1].add(pid)
-    return {v for variants, pids in groups if len(pids) >= 2 for v in variants}
+    return {v for variants, pids in groups if len(pids) >= 2 for v in variants
+            if len(v) >= 5}   # scraps such as "the" or "at" would match real lines
 
 
 def text_width(page):

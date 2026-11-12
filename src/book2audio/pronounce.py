@@ -149,6 +149,36 @@ class Pronouncer:
         return sorted({m.group(1).lower() for m in self.pattern.finditer(text)}) if self.pattern else []
 
 
+DICTIONARY = Path("/usr/share/dict/words")   # the word list that comes with macOS
+
+
+def new_names(text, pron=None, least=2):
+    """[(word, count)]: capitalized words, seen at least `least` times, that aren't ordinary
+    English words and aren't in the pronunciation lists, most frequent first. These are the
+    invented names the voice is most likely to say wrongly."""
+    try:
+        ordinary = {w.strip().lower() for w in DICTIONARY.read_text().split()}
+    except OSError:
+        return []
+    listed = set(pron.entries) if pron else set()
+    counts = {}
+    def is_ordinary(word):
+        w = word.lower()
+        stems = {w, re.sub(r"s$", "", w), re.sub(r"es$", "", w)}
+        for end in ("ed", "ing", "ly"):   # the word list has no inflected forms
+            if w.endswith(end):
+                stem = w[:-len(end)]
+                stems |= {stem, stem + "e", stem[:-1] if stem[-2:-1] == stem[-1:] else stem}
+        return bool(stems & ordinary)
+
+    for w in re.findall(r"(?<![A-Za-z'’-])[A-Z][a-z]{2,}(?![A-Za-z]|['’]t)", text):
+        base = re.sub(r"['’]s$", "", w)
+        if is_ordinary(base) or base.lower() in listed or re.sub(r"s$", "", base.lower()) in listed:
+            continue
+        counts[base] = counts.get(base, 0) + 1
+    return sorted(((w, n) for w, n in counts.items() if n >= least), key=lambda x: (-x[1], x[0]))
+
+
 def guess(text, tokenizer, lang):
     """The voice's own phonemes for a stretch of text (bare punctuation is kept as is)."""
     return tokenizer.phonemize(text, lang) if re.search(r"[A-Za-z0-9]", text) else text.strip()

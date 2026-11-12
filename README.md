@@ -1,15 +1,15 @@
 # book2audio
 
-Record a video of yourself turning a book's pages, and book2audio turns it into an audiobook with chapter markers to listen to on your phone. Photos and screenshots of pages work too. It also writes a transcript and a one-paragraph summary of each chapter, so you can catch up after a few days away from the book.
+Record a video of yourself turning a book's pages, and book2audio turns it into an audiobook with chapter markers to listen to on your phone. Photos and screenshots of pages work too. It also writes a transcript, and if you like, a one-paragraph summary of each chapter, so you can catch up after a few days away from the book.
 
 ## Use it responsibly
 
-book2audio is a personal hobby project for listening to books you could otherwise read yourself.
+book2audio is a personal, non-commercial hobby project for listening to books you could otherwise read yourself. It's free, it isn't a product or a service, and nothing about it is for sale.
 
 - **Only use it on books you have the right to copy for yourself:** books you own, books in the public domain, or your own writing.
 - **Keep what it makes to yourself.** The audiobook, transcript and summaries are copies of the book. Don't share, upload, post, or sell them.
 - It only works from recordings and images of pages: video, photos or screenshots. It doesn't open e-book, PDF or audiobook files, and it doesn't remove copy protection from anything.
-- Text recognition and the voice run on your Mac. Proofreading and summaries send the book's text to Claude (see [Proofreading and summaries](#proofreading-and-summaries)); turn them off with `--no-cleanup --no-summary` to keep everything on your Mac.
+- Text recognition and the voice run on your Mac. Proofreading and summaries are optional and off unless you ask for them (`--proofread`, `--summary`); they send the book's text to Claude (see [Proofreading and summaries](#proofreading-and-summaries)). Without them, everything stays on your Mac.
 
 This isn't legal advice. Copyright rules differ between countries, and you're responsible for how you use the tool.
 
@@ -20,7 +20,7 @@ This isn't legal advice. Copyright rules differ between countries, and you're re
 - Python 3.12 or 3.13 (the voice packages don't support 3.14 yet). If you don't have one: `brew install python@3.13`. `setup.sh` finds it even if your default `python3` is a different version.
 - [Homebrew](https://brew.sh), or ffmpeg already installed.
 - About 1 GB of free disk space (the voice model is ~340 MB).
-- For proofreading and summaries: [Claude Code](https://claude.com/claude-code) (the `claude` command), logged in to your Claude account. Without it, book2audio still works and skips those two steps.
+- Optional, for proofreading and summaries: [Claude Code](https://claude.com/claude-code) (the `claude` command), logged in to your Claude account. Everything else works without it.
 
 ## Install
 
@@ -52,8 +52,8 @@ The results go in `output/`, named from what was read:
 |---|---|
 | `<Book> - Ch 20-21.m4b` | The audiobook, with a chapter marker for each chapter |
 | `<Book> - Ch 20-21.md` | The transcript that was read aloud |
-| `<Book> - Ch 20-21.summary.md` | A one-paragraph summary of each chapter (when summaries are on) |
-| `<Book> - Ch 20-21.ocr.md` | The transcript before proofreading (when proofreading is on) |
+| `<Book> - Ch 20-21.summary.md` | A one-paragraph summary of each chapter (with `--summary`) |
+| `<Book> - Ch 20-21.ocr.md` | The transcript before proofreading (with `--proofread`) |
 
 ## Usage
 
@@ -67,11 +67,15 @@ The results go in `output/`, named from what was read:
 # Several recordings at once, in any order; they're put together by page number
 ./book2audio ~/Downloads/IMG_1240.MOV ~/Downloads/IMG_1241.MOV -o "output/Chapters 10-13.m4b"
 
-# Read each chapter's summary aloud after the chapter, as its own skippable chapter
-./book2audio ~/Downloads/IMG_1234.MOV --speak-summary
+# Have Claude fix text recognition errors, and summarize each chapter: the summaries are
+# saved in a file and each one is read aloud after its chapter, as its own skippable chapter
+./book2audio ~/Downloads/IMG_1234.MOV --proofread --summary
 
-# Summaries for a transcript you already have
-./book2audio --summarize "output/My Book - Ch 20-21.md"
+# Just the chapter summaries for a transcript you already have, e.g. for a book club
+./book2audio "output/My Book - Ch 20-21.md" --summary --text-only
+
+# The recording starts with the end of chapter 25, which you've already heard
+./book2audio ~/Downloads/IMG_1234.MOV --from-chapter 26
 
 # Say the book's invented names your way (see Pronunciations below)
 ./book2audio ~/Downloads/IMG_1234.MOV --pronunciations ~/Books/my-book.txt
@@ -84,36 +88,56 @@ If pages are missing between or within recordings, the run prints which page num
 
 | Option | What it does |
 |---|---|
-| `--voice NAME` | Narrator, e.g. `am_michael` or just `michael`, or a mix such as `lewis:70+onyx:30` (see [Voices](#voices)). Default `am_michael` |
-| `--accent american\|british` | Pronunciation rules. Default: the accent of the main `--voice` |
-| `--speed N` | Speaking speed, e.g. `0.9`. Default `1` |
+| `--voice NAME` | Narrator: one voice, e.g. `am_michael` or just `michael`, or a mix such as `lewis:70+onyx:30` (see [Voices](#voices)). Default `lewis:70+onyx:30` |
+| `--accent american\|british` | Pronunciation rules. Default: American with the default voice, otherwise the accent of the main `--voice` |
+| `--speed N` | Speaking speed, e.g. `1` for normal, `0.9` for slower. Default `0.9` |
 | `--list-voices` | Lists every voice |
 | `--voice-samples` | Writes a short clip of each suggested voice to `voice_samples/` and opens the folder |
 | `--pronunciations FILE` | How to say particular words (see [Pronunciations](#pronunciations)). Give it more than once to combine lists; a later list wins |
-| `--speak-summary` | Also reads each chapter's summary aloud, as a separate "Chapter 20 – Summary" chapter right after it |
-| `--summarize FILE.md` | Writes summaries for an existing transcript (saved next to it as `.summary.md`), then stops |
-| `--no-cleanup` | Skips proofreading |
-| `--no-summary` | Skips the summaries |
+| `--proofread` | Has Claude fix text recognition errors before the text is read aloud (see [Proofreading and summaries](#proofreading-and-summaries)) |
+| `--summary` | Writes a one-paragraph summary of each chapter (`.summary.md`) and reads each one aloud as a separate "Chapter 20 – Summary" chapter right after the chapter it covers |
+| `--from-chapter N` | Starts at chapter N, leaving out the end of the chapter before it, e.g. when your last recording already covered it |
 | `-o FILE` | Output file. By default it's named from the contents, e.g. `output/<Book> - Ch 20-21.m4b` |
 | `--title`, `--author` | Book title and author tags. By default they're read from the running heads (author on left-hand pages, title on right-hand pages). Use these for a single photo or a book laid out differently |
-| `--text-only` | Writes the transcript and summaries, with no audio |
-| `INPUT.md` | A transcript from an earlier run: makes its audiobook again without redoing text recognition and proofreading (add `--speak-summary` to use its `.summary.md`). You can also edit the transcript first. Only the chapters whose text, voice or pronunciations changed are read again, so fixing a line takes seconds to a minute |
+| `--text-only` | Writes the transcript (and summaries, with `--summary`), with no audio |
+| `INPUT.md` | A transcript from an earlier run: works from it again without redoing text recognition. Edit it first if you like. Only the chapters whose text, voice or pronunciations changed are read again, so fixing a line takes seconds to a minute. Give the `.ocr.md` with `--proofread` to proofread it again, e.g. after fixing something by hand |
 | `--video-every S` | Seconds between sampled video frames (default 0.5) |
 
-Text recognition results are cached in `~/Library/Caches/book2audio`, so running the same recording again (with a different voice, say) skips that step. Each chapter's audio is cached there too (about 80 MB per hour of audio), so making an audiobook again reuses every chapter that hasn't changed; chapter audio not used for 30 days is deleted. Delete the folder to clear the cache.
+Text recognition results are cached in `~/Library/Caches/book2audio`, so running the same recording again (with a different voice, say) skips that step. Each chapter's audio is cached there too (about 80 MB per hour of audio), so making an audiobook again reuses every chapter that hasn't changed, and so are Claude's answers, so proofreading or summarizing the same text again is instant and uses nothing from your Claude plan. Anything not used for 30 days is deleted. Delete the folder to clear the cache.
+
+### Recording a whole book
+
+A long book usually takes several recordings, each a batch of chapters. This is a routine that works well, using every option above:
+
+```sh
+# 1. Make the transcript and summaries for the new recording, starting at the chapter where
+#    the last one ended (it ended partway through chapter 26, so start at the top of 26)
+./book2audio ~/Downloads/IMG_1234.MOV --from-chapter 26 --proofread --summary \
+    --pronunciations ~/Books/my-book.txt --text-only
+
+# 2. The run lists names that aren't in your pronunciation list yet. Add the ones the
+#    voice might get wrong to ~/Books/my-book.txt, and fix anything in the transcript.
+
+# 3. Make the audiobook from the transcript (the summaries come from the cache)
+./book2audio "output/My Book - Ch 26-36.md" --summary --pronunciations ~/Books/my-book.txt
+```
+
+Splitting it in two like this means you can check the names before any audio is made. If you'd rather, step 1 without `--text-only` does everything in one go. The voice options work the same way at step 3: try a different `--voice`, `--accent` or `--speed` to suit the book (see [Voices](#voices)).
 
 ### Proofreading and summaries
 
-Both steps use Claude through the `claude` command (Claude Code) and your existing login, with no extra setup. Both send the book's text to Anthropic.
+Both steps are optional and off unless you ask for them. They use Claude through the `claude` command (Claude Code) and your existing login, with no extra setup, and they send the book's text to Anthropic.
 
-- **Proofreading:** text recognition makes small mistakes, such as `rn` read as `m` or a dropped quotation mark, and the voice would read them aloud. The transcript goes to Claude in ~3,000-word parts, with instructions to fix recognition errors only, without rewording. If a part comes back more than 10% longer or shorter, it's thrown away and the original text is kept. The unproofread text is saved as `.ocr.md`.
-- **Summaries:** a short paragraph (under about 90 words) per chapter, covering only the text that was read. A chapter the recording started partway through is summarized from the part that was read, and sections too short to summarize (under about 80 words) are left out. With `--speak-summary`, each summary is also read aloud as its own chapter right after the chapter it covers, so you can skip it, or jump back to it before you carry on with the book.
+- **Proofreading (`--proofread`):** text recognition makes small mistakes, such as `rn` read as `m` or a dropped quotation mark, and the voice would read them aloud. Each chapter goes to Claude (a long one in parts of about 4,000 words), with instructions to fix recognition errors only, without rewording. If a part comes back more than 10% longer or shorter, the original text is kept and the run names the chapter so you can check it: Claude may have dropped something, or rightly removed junk such as a duplicated page. The unproofread text is saved as `.ocr.md`.
+- **Summaries (`--summary`):** a short paragraph (under about 90 words) per chapter, covering only the text that was read, saved as `.summary.md`. Each summary is also read aloud as its own chapter right after the chapter it covers, so you can skip it, or jump back to it before you carry on with the book. A chapter the recording started partway through is summarized from the part that was read, and sections too short to summarize (under about 80 words) are left out. With `--text-only`, you get just the summaries file, handy for a book club.
 
-If `claude` isn't installed, book2audio says so and carries on without these steps. `--speak-summary` and `--summarize` need it, so they stop with a message instead.
+Both use your Claude plan's usage. Proofreading uses the most, since the whole text comes back; summaries send the whole text but get only a paragraph per chapter back. For a recording of about 40,000 words, proofreading and summaries take about 5–10 minutes.
+
+Claude's answers are saved as they arrive. If a run stops partway, for example because your plan's usage limit was reached, it says so and keeps what was done: run the same command again (after the limit resets) to carry on from there. If `claude` isn't installed or isn't logged in, `--proofread` and `--summary` stop with a message.
 
 ### Voices
 
-Run `./book2audio --voice-samples` to hear the suggested narrators, or `./book2audio --list-voices` for all of them. Kokoro voice names start with a code: `am_` American male, `af_` American female, `bm_`/`bf_` British male/female. Good narrators to try: `am_michael`, `am_fenrir`, `am_onyx`, `bm_george`, `bm_fable`, `bm_lewis`, `af_heart`, `bf_emma`. You can give just the name part, e.g. `--voice fenrir`.
+The default narrator is a blend of two voices, `lewis:70+onyx:30`, with an American accent at speed 0.9. It's only a starting point: the voice options are among the most flexible in book2audio, so it's worth trying a few voices, mixes, accents and speeds to find what suits each book. Run `./book2audio --voice-samples` to hear the suggested narrators, or `./book2audio --list-voices` for all of them. Kokoro voice names start with a code: `am_` American male, `af_` American female, `bm_`/`bf_` British male/female. Good narrators to try: `am_michael`, `am_fenrir`, `am_onyx`, `bm_george`, `bm_fable`, `bm_lewis`, `af_heart`, `bf_emma`. You can give just the name part, e.g. `--voice fenrir`.
 
 You can also mix voices. `--voice lewis:70+onyx:30` blends the two voices' sound, 70% to 30% (the numbers are relative, so `7+3` means the same; leave them out for equal parts). The voice and the accent are separate: the accent comes from the pronunciation rules, which follow the main voice unless you pass `--accent`. So `--voice lewis --accent american` keeps that voice but with American pronunciation.
 
@@ -136,7 +160,7 @@ HQ = letters
 - **IPA** between slashes, for exact control: `/vˈeɪlɪn/`, with `ˈ` before the stressed vowel.
 - **`letters`** to spell a word out letter by letter.
 
-Words match whatever their capitals, and the possessive and plural come along (`Zarathel's`, `Zarathels`). Lines starting with `#` are notes. The run says how many of the listed words appear in the text, so a typo in a name shows up as a lower count. Keep one list per book and pass it with every recording. To try a change, give the transcript from `output/` as the input instead of the video: the audio is made again in a few minutes, without the text recognition and proofreading.
+Words match whatever their capitals, and the possessive and plural come along (`Zarathel's`, `Zarathels`). Lines starting with `#` are notes. The run says how many of the listed words appear in the text, so a typo in a name shows up as a lower count. It also lists names in the text that aren't in your list yet (capitalized words that aren't in the word list that comes with macOS), so you can decide which ones to add. Keep one list per book and pass it with every recording. To try a change, give the transcript from `output/` as the input instead of the video: only the chapters with a changed word are read again.
 
 ### Chapters
 
@@ -156,12 +180,13 @@ The `.m4b` file is a standard audiobook file with chapter markers.
 ## Tips for good captures
 
 - Light the pages evenly and avoid glare. Keep fingers off the text.
+- Keep other text out of the frame, such as a screen or papers behind the book. It can be mistaken for the book's page headers or chapter headings.
 - Hold the book open as flat as you can. Lines right at the spine are the hardest.
 - Video is fine and quick; blurry frames during page turns are skipped automatically. Pause about a second on each spread. Frames are sampled every half second, so flipping faster than once per second can skip pages.
 - Some shake and pages slipping mid-turn are fine; frames that can't be read cleanly are skipped as long as other frames show the same pages.
 - Record in 1080p rather than 4K: text recognition works just as well and files are much smaller.
 
-Rough timing on an M3 Pro: text recognition takes about 0.75× the video's length, and the voice takes about 1/6 of the audio's length (an hour of audio in ~10 minutes). Proofreading and summaries add a minute or two.
+Rough timing on an M3 Pro: text recognition takes about 0.75× the video's length, and the voice takes about 1/6 of the audio's length (an hour of audio in ~10 minutes). Proofreading and summaries add about 5–10 minutes for a recording of about 40,000 words (a couple of minutes for a short one).
 
 ## How it works
 
@@ -184,7 +209,8 @@ The code is in `src/book2audio/`:
 - **"Python 3.12 or 3.13 is needed":** run `brew install python@3.13`, then `./setup.sh`.
 - **"Couldn't compile the OCR helper":** run `xcode-select --install`, then `./setup.sh`.
 - **Pages missing or out of order:** re-shoot the pages the run lists, slower, and pass both recordings in one run.
-- **No proofreading or summaries:** install Claude Code and run `claude` once to log in.
+- **"--proofread and --summary need the `claude` command":** install Claude Code and run `claude` once to log in.
+- **"Claude couldn't finish the proofreading/summaries":** usually your Claude plan's usage limit. What was done is saved; run the same command again later to carry on.
 
 ## Credits and third-party software
 

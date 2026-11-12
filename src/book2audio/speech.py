@@ -20,7 +20,9 @@ from .text import SCENE_BREAK, is_continued, sections, short_label
 MODELS = ROOT / "models"
 MODEL_FILE = MODELS / "kokoro-v1.0.onnx"
 VOICES_FILE = MODELS / "voices-v1.0.bin"
-DEFAULT_VOICE = "am_michael"
+DEFAULT_VOICE = "lewis:70+onyx:30"   # a blend of bm_lewis and am_onyx
+DEFAULT_ACCENT = "american"         # with the default voice
+DEFAULT_SPEED = 0.9
 PARAGRAPH_PAUSE = 0.45   # seconds of silence between paragraphs
 CHAPTER_PAUSE = 1.5      # before and after a chapter title
 SCENE_PAUSE = 1.5        # at a scene break (blank gap mid-chapter)
@@ -69,7 +71,9 @@ def resolve_voice(spec, accent=None, speed=None):
     relative, so 7+3 or 0.7+0.3 mean the same; leave them out for equal parts)."""
     voices = all_voices()
     parts = []
-    for item in (spec or DEFAULT_VOICE).lower().replace(" ", "").split("+"):
+    if not spec:
+        spec, accent = DEFAULT_VOICE, accent or DEFAULT_ACCENT
+    for item in spec.lower().replace(" ", "").split("+"):
         name, _, weight = item.partition(":")
         try:
             w = float(weight.rstrip("%")) if weight else 1.0
@@ -83,7 +87,7 @@ def resolve_voice(spec, accent=None, speed=None):
     lang = {"american": "en-us", "british": "en-gb", None: default_lang(parts)}[accent]
     if speed is not None and not 0.5 <= speed <= 2:
         sys.exit("--speed must be between 0.5 and 2")
-    return Voice(parts, lang, speed or 1.0)
+    return Voice(parts, lang, speed or DEFAULT_SPEED)
 
 
 def voice_name(name, voices):
@@ -106,13 +110,13 @@ def list_voices():
     voices = all_voices()
     print("Suggested narrators (hear them with --voice-samples):")
     for v in SUGGESTED_VOICES:
-        default = "  (default)" if v == DEFAULT_VOICE else ""
-        print(f"  {v:<14} {describe_voice(v)}{default}")
+        print(f"  {v:<14} {describe_voice(v)}")
     print("\nAll voices:")
     for v in voices:
         print(f"  {v:<14} {describe_voice(v)}")
     print("\nUse one with --voice, e.g.  --voice bm_george  (or just  --voice george)."
-          "\nMix voices with weights, e.g.  --voice lewis:70+onyx:30 --accent american")
+          "\nMix voices with weights, e.g.  --voice lewis:70+onyx:30 --accent american"
+          f"\nThe default is {DEFAULT_VOICE}, {DEFAULT_ACCENT} accent, speed {DEFAULT_SPEED}.")
 
 
 def speakable(text):
