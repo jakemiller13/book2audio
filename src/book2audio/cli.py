@@ -5,7 +5,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import ROOT, capture, claude, layout, ordering, pronounce, speech, text
+from . import ROOT, capture, claude, emotion, layout, ordering, pronounce, speech, text
 
 USAGE = """book2audio INPUT [INPUT ...] [options]
        book2audio --list-voices | --voice-samples"""
@@ -20,8 +20,12 @@ text recognition: after fixing a line in it, to try other pronunciations or anot
 voice, or to proofread or summarize it. Only the chapters that changed are read
 aloud again.
 
---proofread and --summary send the book's text to Claude through your `claude`
-login (Claude Code). Without them, everything stays on your Mac.
+--proofread, --summary and --emotion send the book's text to Claude through your
+`claude` login (Claude Code). Without them, everything stays on your Mac.
+
+--emotion needs the optional expressive voice: run  ./setup.sh --emotion  once (about
+4.5 GB). It is many times slower than the usual reading: "hybrid" takes about 2-4 times
+the audio's length for a dialogue-heavy chapter, "full" about 3-5 times, so try a chapter first.
 
 examples:
   ./book2audio ~/Downloads/IMG_1234.MOV
@@ -29,6 +33,7 @@ examples:
   ./book2audio ~/Downloads/IMG_1234.MOV --voice george --speed 1
   ./book2audio "output/My Book - Ch 20-21.md" --summary --text-only
   ./book2audio "output/My Book - Ch 20-21.md" --pronunciations my-book.txt
+  ./book2audio "output/My Book - Ch 20-21.md" --emotion hybrid --pronunciations my-book.txt
 """
 
 
@@ -69,9 +74,18 @@ def parse_args():
                    help="write a one-paragraph summary of each chapter (.summary.md) and read "
                         "each one aloud after its chapter, as its own chapter you can skip")
 
+    g.add_argument("--emotion", choices=emotion.MODES, metavar="hybrid|full",
+                   help="a more expressive reading: Claude marks who is speaking and how "
+                        "intensely, and an expressive copy of the narrator's voice reads it. "
+                        "hybrid: only dialogue and intense paragraphs (the rest as usual); "
+                        "full: everything (much slower). Needs ./setup.sh --emotion")
+
     g = ap.add_argument_group("other")
     g.add_argument("--text-only", action="store_true",
                    help="stop after the transcript (and summaries), without making audio")
+    g.add_argument("--stay-awake", action="store_true",
+                   help="keep the Mac from going to sleep on its own while the audio is made, "
+                        "for a long run left unattended (closing the lid still puts it to sleep)")
     g.add_argument("--video-every", type=float, default=0.5, metavar="SECONDS",
                    help="time between sampled video frames (default 0.5)")
     args = ap.parse_args()
@@ -111,9 +125,12 @@ def main():
 
     voice = speech.resolve_voice(args.voice, args.accent, args.speed)   # check before the slow steps
     pron = pronounce.load(args.pronunciations)
-    if (args.proofread or args.summary) and not claude.available():
-        sys.exit("--proofread and --summary need the `claude` command (Claude Code), logged in. "
-                 "Leave them out to do without.")
+    if (args.proofread or args.summary or args.emotion) and not claude.available():
+        sys.exit("--proofread, --summary and --emotion need the `claude` command (Claude Code), "
+                 "logged in. Leave them out to do without.")
+    if args.emotion and not args.text_only and not emotion.installed():
+        sys.exit("--emotion needs the optional expressive voice, which isn't installed yet. "
+                 "Run  ./setup.sh --emotion  (about 4.5 GB), then the same command again.")
 
     if args.transcript:
         blocks, out, tags = read_transcript(args)
@@ -146,7 +163,13 @@ def main():
     report_new_names(md_text, pron)
     if args.text_only:
         return
-    narrate(blocks, out, voice, tags, summaries, pron)
+    expressive = None
+    if args.emotion:
+        print("Marking who speaks and how intensely, with Claude...", file=sys.stderr)
+        marks = emotion.mark(blocks)
+        expressive = emotion.Expressive(args.emotion, marks, voice, pron, speech.AUDIO_CACHE)
+        report_emotion(blocks, expressive)
+    narrate(blocks, out, voice, tags, summaries, pron, expressive, args.stay_awake)
 
 
 def read_pages(args):
@@ -216,13 +239,21 @@ def report_new_names(md_text, pron):
               f"they're said:\n  " + ", ".join(f"{w} ({n})" for w, n in names), file=sys.stderr)
 
 
-def narrate(blocks, out, voice, tags, summaries, pron):
+def report_emotion(blocks, expressive):
+    paras = [t for kind, t in blocks if kind == "para"]
+    mine = [p for p in paras if expressive.wants(p)]
+    share = sum(len(p.split()) for p in mine) / max(1, sum(len(p.split()) for p in paras))
+    print(f"  The expressive voice reads {len(mine)} of {len(paras)} paragraphs ({share:.0%} of the "
+          f"words); expect this to take much longer than usual", file=sys.stderr)
+
+
+def narrate(blocks, out, voice, tags, summaries, pron, expressive=None, awake=False):
     print(f"Synthesizing speech ({voice})...", file=sys.stderr)
     if pron:
         used = pron.used_in(text.blocks_to_markdown(blocks))
         print(f"Pronunciations: {len(used)} of the {len(pron.entries)} listed words are in this text",
               file=sys.stderr)
-    chapters = speech.synthesize(blocks, out, voice, tags, summaries, pron)
+    chapters = speech.synthesize(blocks, out, voice, tags, summaries, pron, expressive, awake)
     print(f"Audio: {out}  ({chapters[-1][2] / 60:.0f} min)", file=sys.stderr)
     for name, start, _ in chapters:
         print(f"  {int(start // 60):3d}:{int(start % 60):02d}  {name}", file=sys.stderr)

@@ -2,10 +2,20 @@
 # One-time setup: checks requirements, then builds the Python environment, downloads the
 # Kokoro voice model (~340 MB), installs ffmpeg if needed, and compiles the OCR helper.
 # Safe to run again at any time (for example after moving the folder).
+#
+#   ./setup.sh --emotion   also installs the optional expressive voice for --emotion
+#                          (about 4.5 GB more: PyTorch and the Chatterbox model)
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$DIR"
 die() { echo "Setup stopped: $*" >&2; exit 1; }
+EMOTION=
+for a in "$@"; do
+  case "$a" in
+    --emotion) EMOTION=1 ;;
+    *) die "unknown option $a (the only option is --emotion)" ;;
+  esac
+done
 
 # --- requirements
 [ "$(uname)" = Darwin ] || die "book2audio needs macOS (it uses Apple's Vision framework for OCR)."
@@ -60,6 +70,24 @@ echo "Compiling OCR helper..."
 swiftc -O -suppress-warnings src/book2audio/ocr.swift -o ocr
 
 ./book2audio --help >/dev/null
+
+# --- Optional: the expressive voice (--emotion), in its own environment
+if [ -n "$EMOTION" ]; then
+  if [ ! -x .venv-emotion/bin/python ] || [ "$(cat .venv-emotion/.location 2>/dev/null)" != "$DIR" ]; then
+    echo "Creating the expressive voice's Python environment..."
+    rm -rf .venv-emotion
+    "$PYTHON" -m venv .venv-emotion
+    echo "$DIR" > .venv-emotion/.location
+  fi
+  .venv-emotion/bin/python -m pip install -q --upgrade pip
+  echo "Installing the expressive voice (PyTorch and Chatterbox, about 1 GB)..."
+  .venv-emotion/bin/python -m pip install -q -r requirements-emotion.txt
+  echo "Downloading its models (about 3.5 GB, once)..."
+  PYTHONWARNINGS=ignore HF_HUB_DISABLE_PROGRESS_BARS=1 HF_HUB_VERBOSITY=error \
+    .venv-emotion/bin/python src/book2audio/emotion_worker.py --download
+fi
 command -v claude >/dev/null ||
   echo "Note: Claude Code (the \`claude\` command) isn't installed, so runs will skip proofreading and summaries."
 echo "Ready. Hear the voices with:  ./book2audio --voice-samples"
+[ -n "$EMOTION" ] || [ -x .venv-emotion/bin/python ] ||
+  echo "(For --emotion, the optional expressive voice, run:  ./setup.sh --emotion)"

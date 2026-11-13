@@ -1,6 +1,6 @@
 # book2audio
 
-Record a video of yourself turning a book's pages, and book2audio turns it into an audiobook with chapter markers to listen to on your phone. Photos and screenshots of pages work too. It also writes a transcript, and if you like, a one-paragraph summary of each chapter, so you can catch up after a few days away from the book.
+Record a video of yourself turning a book's pages, and book2audio turns it into an audiobook with chapter markers to listen to on your phone. Photos and screenshots of pages work too. It also writes a transcript, and if you like, a one-paragraph summary of each chapter, so you can catch up after a few days away from the book. An optional, more expressive reading puts some emotion into the dialogue and the dramatic moments.
 
 ## Use it responsibly
 
@@ -9,7 +9,7 @@ book2audio is a personal, non-commercial hobby project for listening to books yo
 - **Only use it on books you have the right to copy for yourself:** books you own, books in the public domain, or your own writing.
 - **Keep what it makes to yourself.** The audiobook, transcript and summaries are copies of the book. Don't share, upload, post, or sell them.
 - It only works from recordings and images of pages: video, photos or screenshots. It doesn't open e-book, PDF or audiobook files, and it doesn't remove copy protection from anything.
-- Text recognition and the voice run on your Mac. Proofreading and summaries are optional and off unless you ask for them (`--proofread`, `--summary`); they send the book's text to Claude (see [Proofreading and summaries](#proofreading-and-summaries)). Without them, everything stays on your Mac.
+- Text recognition and the voices run on your Mac. Proofreading, summaries and the expressive reading are optional and off unless you ask for them (`--proofread`, `--summary`, `--emotion`); they send the book's text to Claude (see [Proofreading and summaries](#proofreading-and-summaries) and [Expressive reading](#expressive-reading)). Without them, everything stays on your Mac.
 
 This isn't legal advice. Copyright rules differ between countries, and you're responsible for how you use the tool.
 
@@ -19,8 +19,8 @@ This isn't legal advice. Copyright rules differ between countries, and you're re
 - Xcode Command Line Tools: run `xcode-select --install` if you don't have them.
 - Python 3.12 or 3.13 (the voice packages don't support 3.14 yet). If you don't have one: `brew install python@3.13`. `setup.sh` finds it even if your default `python3` is a different version.
 - [Homebrew](https://brew.sh), or ffmpeg already installed.
-- About 1 GB of free disk space (the voice model is ~340 MB).
-- Optional, for proofreading and summaries: [Claude Code](https://claude.com/claude-code) (the `claude` command), logged in to your Claude account. Everything else works without it.
+- About 1 GB of free disk space (the voice model is ~340 MB), plus about 4.5 GB if you install the optional expressive voice.
+- Optional, for proofreading, summaries and the expressive reading: [Claude Code](https://claude.com/claude-code) (the `claude` command), logged in to your Claude account. Everything else works without it.
 
 ## Install
 
@@ -36,6 +36,8 @@ cd book2audio
 - the Kokoro voice model in `models/`, checked against known checksums
 - ffmpeg, with Homebrew, if it isn't installed already
 - the text recognition helper, compiled from `src/book2audio/ocr.swift`
+
+For the optional [expressive reading](#expressive-reading) (`--emotion`), run `./setup.sh --emotion` instead, once. It also installs a second, separate Python environment in `.venv-emotion` (PyTorch and the Chatterbox voice, about 1.3 GB) and downloads its models into `models/emotion` (about 3.2 GB). That takes a few minutes on a fast connection. To remove it again, delete those two folders.
 
 It's safe to run again at any time, for example after moving the folder or pulling an update. Keep the folder at a normal-length path such as `~/book2audio`: the voice's pronunciation library can't load from a very deeply nested folder, and `setup.sh` tells you if that's the case.
 
@@ -82,6 +84,9 @@ The results go in `output/`, named from what was read:
 
 # Make the audiobook again from a transcript, e.g. after changing the list or the voice
 ./book2audio "output/My Book - Ch 20-21.md" --pronunciations ~/Books/my-book.txt
+
+# A more expressive reading of the dialogue and dramatic moments (needs ./setup.sh --emotion)
+./book2audio "output/My Book - Ch 20-21.md" --emotion hybrid --pronunciations ~/Books/my-book.txt
 ```
 
 If pages are missing between or within recordings, the run prints which page numbers to re-shoot. It also lists lines with a hole in them, where something (usually a thumb) covered the words in every frame, so you can retake that page while the book is still open, or type the missing words into the transcript and make the audio again. Run `./book2audio --help` for the full list of options.
@@ -96,14 +101,16 @@ If pages are missing between or within recordings, the run prints which page num
 | `--pronunciations FILE` | How to say particular words (see [Pronunciations](#pronunciations)). Give it more than once to combine lists; a later list wins |
 | `--proofread` | Has Claude fix text recognition errors before the text is read aloud (see [Proofreading and summaries](#proofreading-and-summaries)) |
 | `--summary` | Writes a one-paragraph summary of each chapter (`.summary.md`) and reads each one aloud as a separate "Chapter 20 – Summary" chapter right after the chapter it covers |
+| `--emotion hybrid\|full` | A more expressive reading (see [Expressive reading](#expressive-reading)). `hybrid`: the expressive voice reads dialogue and intense paragraphs, the usual voice the rest. `full`: the expressive voice reads everything. Needs `./setup.sh --emotion`; much slower |
 | `--from-chapter N` | Starts at chapter N, leaving out the end of the chapter before it, e.g. when your last recording already covered it |
 | `-o FILE` | Output file. By default it's named from the contents, e.g. `output/<Book> - Ch 20-21.m4b` |
 | `--title`, `--author` | Book title and author tags. By default they're read from the running heads (author on left-hand pages, title on right-hand pages). Use these for a single photo or a book laid out differently |
 | `--text-only` | Writes the transcript (and summaries, with `--summary`), with no audio |
-| `INPUT.md` | A transcript from an earlier run: works from it again without redoing text recognition. Edit it first if you like. Only the chapters whose text, voice or pronunciations changed are read again, so fixing a line takes seconds to a minute. Give the `.ocr.md` with `--proofread` to proofread it again, e.g. after fixing something by hand |
+| `INPUT.md` | A transcript from an earlier run: works from it again without redoing text recognition. Edit it first if you like. Only the chapters whose text, voice, pronunciations or `--emotion` setting changed are read again, so fixing a line takes seconds to a minute. Give the `.ocr.md` with `--proofread` to proofread it again, e.g. after fixing something by hand |
+| `--stay-awake` | Keeps the Mac from going to sleep on its own while the audio is made, so a long run (such as `--emotion`) can be left unattended. Off unless you ask for it; it ends with the run. Closing the lid still puts the Mac to sleep |
 | `--video-every S` | Seconds between sampled video frames (default 0.5) |
 
-Text recognition results are cached in `~/Library/Caches/book2audio`, so running the same recording again (with a different voice, say) skips that step. Each chapter's audio is cached there too (about 80 MB per hour of audio), so making an audiobook again reuses every chapter that hasn't changed, and so are Claude's answers, so proofreading or summarizing the same text again is instant and uses nothing from your Claude plan. Anything not used for 30 days is deleted. Delete the folder to clear the cache.
+Text recognition results are cached in `~/Library/Caches/book2audio`, so running the same recording again (with a different voice, say) skips that step. Each chapter's audio is cached there too (about 80 MB per hour of audio), so making an audiobook again reuses every chapter that hasn't changed; with `--emotion`, so is each paragraph the expressive voice reads, so a run that stops partway carries on from the last finished paragraph. So are Claude's answers, so proofreading or summarizing the same text again is instant and uses nothing from your Claude plan. Anything not used for 30 days is deleted. Delete the folder to clear the cache.
 
 ### Recording a whole book
 
@@ -135,6 +142,25 @@ Both use your Claude plan's usage. Proofreading uses the most, since the whole t
 
 Claude's answers are saved as they arrive. If a run stops partway, for example because your plan's usage limit was reached, it says so and keeps what was done: run the same command again (after the limit resets) to carry on from there. If `claude` isn't installed or isn't logged in, `--proofread` and `--summary` stop with a message.
 
+### Expressive reading
+
+The usual narrator reads everything in the same even tone, so a scream and a quiet aside sound much alike. `--emotion` gives a more expressive reading. It's optional, needs a one-time `./setup.sh --emotion` (about 4.5 GB), and is many times slower than the usual reading (see the timing below), so try it on a chapter first.
+
+- **Claude marks the text:** each paragraph is split into lines, and each line gets who is speaking (the narrator or a character), how intense it is, whether it's whispered or shouted, and how long a pause follows it. This sends the book's text to Claude, like `--proofread`.
+- **An expressive voice reads it:** [Chatterbox](https://github.com/resemble-ai/chatterbox), a larger voice model that can be made more or less intense line by line. It imitates your narrator from a short clip read by the usual voice, so it sounds like the same person, though not identical: it follows `--voice`, `--accent` and `--speed`.
+- **`--emotion hybrid`:** the expressive voice reads only the paragraphs with dialogue or strong emotion; the usual voice reads the calm narration. It switches only between paragraphs, and the two are matched in loudness. How much of a book the expressive voice reads depends on the book: about 80% of a tense, dialogue-heavy chapter, much less of a quiet one. The run says how much before it starts.
+- **`--emotion full`:** the expressive voice reads everything, including chapter titles and summaries.
+
+Some care goes into keeping the expressive voice reliable:
+
+- A very short line, like a one-word shout, is read together with the words around it (`"Run!" she screamed.`), since on its own it can come out garbled.
+- The voice is kept just below the top of its intensity range, where it's least stable.
+- Each line is checked by a small speech-to-text model. If it didn't come out as written (garbled, skipped or rambling on), it's made again, up to 3 times. Lines that still don't pass are listed at the end of the run, so you can listen to those spots.
+- Long silences inside a line are shortened, and each line ends with the pause Claude marked.
+- It reads plain text rather than exact sounds, so a [pronunciation list](#pronunciations) reaches it as plain spellings: a name listed as `KAIR` is given to it as "Kare". That's nearly always right, but not as exact as with the usual voice.
+
+Timing on an M3 Pro: the usual voice reads an hour of audio in about 10 minutes. With `hybrid`, a tense chapter where the expressive voice read most of it took about 2–4 times its own length (a 5-minute scene took about 11–18 minutes); with `full`, somewhat longer still, about 3–5 times. So `hybrid` suits a chapter or a few, best left running overnight with `--stay-awake`, and `full` a single scene. Only one voice model runs at a time, so the Mac stays usable, but it works hard, and background work such as a virus scan slows it down a lot. The audio the expressive voice makes carries an inaudible watermark marking it as machine-made (part of Chatterbox), which is another reason to keep what book2audio makes to yourself.
+
 ### Voices
 
 The default narrator is a blend of two voices, `lewis:70+onyx:30`, with an American accent at speed 0.9. It's only a starting point: the voice options are among the most flexible in book2audio, so it's worth trying a few voices, mixes, accents and speeds to find what suits each book. Run `./book2audio --voice-samples` to hear the suggested narrators, or `./book2audio --list-voices` for all of them. Kokoro voice names start with a code: `am_` American male, `af_` American female, `bm_`/`bf_` British male/female. Good narrators to try: `am_michael`, `am_fenrir`, `am_onyx`, `bm_george`, `bm_fable`, `bm_lewis`, `af_heart`, `bf_emma`. You can give just the name part, e.g. `--voice fenrir`.
@@ -159,6 +185,8 @@ HQ = letters
 - **Respelling** (the easy way): syllables split by hyphens, the stressed syllable in CAPITALS (with none in capitals, the first syllable is stressed). Spell the sounds the way they're commonly respelled: `ay` as in say, `ah` as in father, `ee` as in see, `eh` as in bed, `ih` as in sit, `oh` as in go, `oo` as in food, `uh` as in cup, `ow` as in cow, `oy` as in boy, `eye` or `ye` as in eye, `air` as in hair, `ar` as in car, `or` as in for, `er` as in her; `sh`, `ch`, `th`, `zh` (as in vision), `kh` (as in loch), `j` as in jam, `g` always hard. A single vowel letter is short (`a` as in cat, `e` as in bed, `i` as in sit, `o` as in hot, `u` as in cup), and a final `e` makes it long, as in `vice`, `ace`, `rope`.
 - **IPA** between slashes, for exact control: `/vˈeɪlɪn/`, with `ˈ` before the stressed vowel.
 - **`letters`** to spell a word out letter by letter.
+
+With `--emotion`, the expressive voice gets each listed word as a plain spelling made from its sounds (see [Expressive reading](#expressive-reading)).
 
 Words match whatever their capitals, and the possessive and plural come along (`Zarathel's`, `Zarathels`). Lines starting with `#` are notes. The run says how many of the listed words appear in the text, so a typo in a name shows up as a lower count. It also lists names in the text that aren't in your list yet (capitalized words that aren't in the word list that comes with macOS), so you can decide which ones to add. Keep one list per book and pass it with every recording. To try a change, give the transcript from `output/` as the input instead of the video: only the chapters with a changed word are read again.
 
@@ -186,7 +214,7 @@ The `.m4b` file is a standard audiobook file with chapter markers.
 - Some shake and pages slipping mid-turn are fine; frames that can't be read cleanly are skipped as long as other frames show the same pages.
 - Record in 1080p rather than 4K: text recognition works just as well and files are much smaller.
 
-Rough timing on an M3 Pro: text recognition takes about 0.75× the video's length, and the voice takes about 1/6 of the audio's length (an hour of audio in ~10 minutes). Proofreading and summaries add about 5–10 minutes for a recording of about 40,000 words (a couple of minutes for a short one).
+Rough timing on an M3 Pro: text recognition takes about 0.75× the video's length, and the voice takes about 1/6 of the audio's length (an hour of audio in ~10 minutes). Proofreading and summaries add about 5–10 minutes for a recording of about 40,000 words (a couple of minutes for a short one). `--emotion` is much slower (see [Expressive reading](#expressive-reading)). A Mac that goes to sleep pauses the run. For a long run left unattended, add `--stay-awake`; closing the lid still puts the Mac to sleep, so leave it open (and plugged in).
 
 ## How it works
 
@@ -199,8 +227,10 @@ The code is in `src/book2audio/`:
 | `ordering.py` | Matches the many views of each page by their text and keeps the clearest. Page numbers are decided by vote, with evidence from the facing page. A read page number is ignored unless another page has a number close to it, which filters misreads like "867" while still allowing recordings of separate parts of the book |
 | `text.py` | Rebuilds paragraphs and writes the Markdown transcript |
 | `claude.py` | Proofreading and summaries, through `claude -p` |
-| `pronounce.py` | Reads `--pronunciations` lists and turns respellings into the sounds the voice speaks |
+| `pronounce.py` | Reads `--pronunciations` lists and turns respellings into the sounds the voice speaks (and, for `--emotion`, sounds back into plain spellings) |
 | `speech.py` | Kokoro speaks each chapter, and ffmpeg packages everything as an AAC `.m4b` with a chapter track |
+| `emotion.py` | `--emotion`: Claude's marks, choosing which paragraphs the expressive voice reads, checking each line, and evening out silences and loudness |
+| `emotion_worker.py` | Runs the expressive voice and the line check in their own environment (`.venv-emotion`), one request at a time |
 | `cli.py` | The command line, tying the steps together |
 
 ## Troubleshooting
@@ -210,7 +240,10 @@ The code is in `src/book2audio/`:
 - **"Couldn't compile the OCR helper":** run `xcode-select --install`, then `./setup.sh`.
 - **Pages missing or out of order:** re-shoot the pages the run lists, slower, and pass both recordings in one run.
 - **"--proofread and --summary need the `claude` command":** install Claude Code and run `claude` once to log in.
-- **"Claude couldn't finish the proofreading/summaries":** usually your Claude plan's usage limit. What was done is saved; run the same command again later to carry on.
+- **"Claude couldn't finish the proofreading/summaries/mood marks":** usually your Claude plan's usage limit. What was done is saved; run the same command again later to carry on.
+- **"--emotion needs the optional expressive voice":** run `./setup.sh --emotion` once.
+- **"The expressive voice couldn't run":** the message shows the end of its log. Run `./setup.sh --emotion` again, then the same command: finished chapters and paragraphs are kept.
+- **"N line(s) may sound unclear" after an `--emotion` run:** listen to those lines. If one is wrong, run the same command again: only that paragraph is read again if you change a word in the transcript, or change nothing and delete `~/Library/Caches/book2audio/audio/emotion` to read every expressive paragraph again.
 
 ## Credits and third-party software
 
@@ -226,6 +259,10 @@ book2audio doesn't include any of these in the repository; `setup.sh` downloads 
 | [FFmpeg](https://ffmpeg.org) (via Homebrew) | Encoding the `.m4b` | LGPL/GPL |
 | NumPy, soundfile, and their dependencies | Audio arrays, WAV files | BSD/MIT-style |
 | [libsndfile](https://github.com/libsndfile/libsndfile) (bundled with soundfile) | Reading and writing WAV files | LGPL-2.1 |
+| [Chatterbox](https://github.com/resemble-ai/chatterbox) model and code (only with `./setup.sh --emotion`) | The expressive voice | MIT |
+| [Perth](https://github.com/resemble-ai/Perth) (bundled with Chatterbox) | Watermarking the expressive voice's audio | MIT |
+| [PyTorch](https://pytorch.org), torchaudio, librosa (with `--emotion`) | Running the expressive voice | BSD-3-Clause, ISC |
+| [Transformers](https://github.com/huggingface/transformers) and the [Whisper base.en](https://huggingface.co/openai/whisper-base.en) model (with `--emotion`) | Checking each expressive line | Apache-2.0 |
 
 Apple, Mac, macOS, iPhone, Apple Books and CarPlay are trademarks of Apple Inc. Claude and Claude Code are trademarks of Anthropic. BookPlayer is a third-party app. book2audio is an independent hobby project. It isn't affiliated with, sponsored by, or endorsed by any of these companies or projects.
 

@@ -10,3 +10,6 @@ voice_samples/
 # Python / macOS
 __pycache__/
 .DS_Store
+
+# The optional expressive voice (./setup.sh --emotion)
+.venv-emotion/
