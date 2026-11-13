@@ -300,7 +300,11 @@ class Expressive:
     def close(self):
         if self.proc:
             self.proc.stdin.close()
-            self.proc.wait(timeout=30)
+            try:
+                self.proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:   # PyTorch can hang on the way out
+                self.proc.kill()
+                self.proc.wait()
             self.proc = None
             self.log.close()
 

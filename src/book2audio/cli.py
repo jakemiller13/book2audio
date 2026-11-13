@@ -24,8 +24,8 @@ aloud again.
 `claude` login (Claude Code). Without them, everything stays on your Mac.
 
 --emotion needs the optional expressive voice: run  ./setup.sh --emotion  once (about
-4.5 GB). It is many times slower than the usual reading: "hybrid" takes about 2-4 times
-the audio's length for a dialogue-heavy chapter, "full" about 3-5 times, so try a chapter first.
+4.5 GB). It is many times slower than the usual reading: "hybrid" takes about 3 times
+the audio's length for a dialogue-heavy chapter, "full" about 4 times, so try a chapter first.
 
 examples:
   ./book2audio ~/Downloads/IMG_1234.MOV
