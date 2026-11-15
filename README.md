@@ -164,7 +164,7 @@ Words match whatever their capitals, and the possessive and plural come along (`
 
 ### Chapters
 
-A page is treated as a chapter opening when it has a "Chapter N" line (or Prologue/Epilogue/Part/Interlude, or a Roman numeral such as "IV" on its own) near the top, an optional title under it, and then a tall blank band before the text starts. In video, the numeral is small and often read in only one of a page's frames; that's enough. That's a common layout; a book that opens chapters differently may need `detect_chapter_opening` in `src/book2audio/layout.py` adjusted.
+A page is treated as a chapter opening when it has a "Chapter N" line (or Prologue/Epilogue/Part/Interlude, or a Roman numeral such as "IV" on its own) near the top, an optional title under it, and then a tall blank band before the text starts. In video, the numeral is small and often read in only one of a page's frames; that's enough. Chapters that start on a right-hand page facing a blank page work too, and the blank page isn't reported as missing. That's a common layout; a book that opens chapters differently may need `detect_chapter_opening` in `src/book2audio/layout.py` adjusted.
 
 A recording usually starts partway through a chapter. That opening text gets its own chapter, named from the next chapter's number, e.g. "Chapter 31 (continued)", or "Previous chapter (continued)" if no numbered chapter follows.
 
