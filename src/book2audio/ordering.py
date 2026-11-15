@@ -29,6 +29,7 @@ def order_pages(pages):
             best["shingles"] |= p["shingles"]
         else:
             clusters.append({"members": [p], "shingles": set(p["shingles"]), "first": idx})
+    clusters = drop_garbled_copies(clusters)
     for c in clusters:
         for m in c["members"]:
             m["cluster"] = c
@@ -49,6 +50,9 @@ def order_pages(pages):
     for p in pages:
         if p.get("cluster") and p["number"] is not None:
             votes[id(p["cluster"])][p["number"]] += 1
+    for p in pages:   # a page facing a blank one: the blank page's number, +/- 1
+        if p.get("cluster") and p.get("facing_number") is not None:
+            votes[id(p["cluster"])][p["facing_number"] + (1 if p["side"] == 1 else -1)] += 1
     frames = {}
     for p in pages:
         if p.get("cluster"):
@@ -72,17 +76,25 @@ def order_pages(pages):
     if any(c["number"] is not None for c in clusters):
         for prev, c in zip(clusters, clusters[1:]):
             if c["number"] is None and prev["number"] is not None:
-                c["number"] = prev["number"] + 1
+                # A chapter page facing a blank one: the blank page has a number too.
+                c["number"] = prev["number"] + (2 if best_view(c).get("blank_facing") else 1)
+        # Before the first numbered page, count down from the lowest number that follows (a
+        # spread's right page is often read first: page 1 comes before 2, not before 3).
         first_known = next(i for i, c in enumerate(clusters) if c["number"] is not None)
+        lowest = min(c["number"] for c in clusters[first_known:first_known + 4] if c["number"] is not None)
         for i in range(first_known - 1, -1, -1):
-            clusters[i]["number"] = clusters[i + 1]["number"] - 1
+            lowest -= 1
+            clusters[i]["number"] = lowest
         by_number = {}
         for c in clusters:
             other = by_number.get(c["number"])
             if other is None or best_view(c)["quality"] > best_view(other)["quality"]:
                 by_number[c["number"]] = c
         clusters = [by_number[n] for n in sorted(by_number)]
-        nums = sorted(by_number)
+        # The blank page facing a chapter opening isn't missing.
+        blank = {c["number"] + (-1 if best_view(c)["side"] == 1 else 1)
+                 for c in clusters if best_view(c).get("blank_facing")}
+        nums = sorted(set(by_number) | blank)
         gaps = [f"{a + 1}-{b - 1}" if b - a > 2 else str(a + 1)
                 for a, b in zip(nums, nums[1:]) if b - a > 1]
         if gaps:
@@ -94,6 +106,31 @@ def order_pages(pages):
         view["number"] = c["number"]
         ordered.append(view)
     return ordered
+
+
+def bigrams(page):
+    words = re.findall(r"[a-z]+", " ".join(r["text"] for r in page["body"]).lower())
+    return {tuple(words[i:i + 2]) for i in range(len(words) - 1)}
+
+
+def drop_garbled_copies(clusters):
+    """A page glimpsed in a frame or two while moving (mid-turn, camera shake) can be read so
+    badly that it doesn't join the clear views of the same page; often with a misread page
+    number too, so it lands in the wrong place as a garbled extra page. Drop such a cluster
+    when much of its text is in a far clearer one."""
+    keep = []
+    for c in clusters:
+        q = best_view(c)["quality"]
+        mine = set().union(*(bigrams(m) for m in c["members"]))
+        def copy_of(d):
+            if d is c or best_view(d)["quality"] <= q:
+                return False
+            shared = len(mine & set().union(*(bigrams(m) for m in d["members"]))) / len(mine)
+            return shared > 0.5 or (shared > 0.25 and best_view(d)["quality"] >= 2 * q)
+        garbled = len(c["members"]) <= 2 and len(mine) >= 10 and any(copy_of(d) for d in clusters)
+        if not garbled:
+            keep.append(c)
+    return keep
 
 
 def best_view(cluster):
