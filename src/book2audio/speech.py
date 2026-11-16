@@ -253,12 +253,17 @@ def synthesize(blocks, out_path, voice, tags, summaries=None, pronouncer=None, e
         for i, ((title, heading, paras), f) in enumerate(zip(plan, cached)):
             if i in todo:
                 part = f.with_suffix(".part.flac")   # renamed when complete, so a stopped run leaves no half file
+                stand_ins = expressive.stand_ins if expressive else 0
                 try:
                     render_section(engine, heading, paras, part, progress, expressive)
                 except BaseException:
                     if expressive:
                         expressive.close()
                     raise
+                if expressive and expressive.stand_ins > stand_ins:
+                    # a line had to be read by the usual voice: use the chapter this time, but
+                    # don't keep it, so running the same command again redoes just those lines
+                    f = cached[i] = Path(tmp) / f.name
                 part.replace(f)
             else:
                 os.utime(f)   # recently used, so prune_audio_cache keeps it
@@ -298,11 +303,15 @@ def section_key(voice, pronouncer, title, heading, paras, expressive=None):
     return hashlib.sha1(json.dumps(key, ensure_ascii=False, default=str).encode()).hexdigest()
 
 
+# Part of each cached chapter's key. Change it whenever a change to speech.py or pronounce.py
+# changes how anything sounds (a new speaking rule, different pauses), so cached chapters are
+# read again; leave it alone for changes that don't, so they aren't. (It began as a fingerprint
+# of v1.4.0's code, which keeps chapters cached before then.)
+SOUND_VERSION = "a77e06654178ab85649f807cfb57688db1fbbf81"
+
+
 def narration_code():
-    """A fingerprint of the code that turns text into sound, so an update to it (a new
-    speaking rule, different pauses) re-reads cached chapters instead of reusing them."""
-    here = Path(__file__).parent
-    return hashlib.sha1(b"".join((here / f).read_bytes() for f in ("speech.py", "pronounce.py"))).hexdigest()
+    return SOUND_VERSION
 
 
 def prune_audio_cache(days=30):
