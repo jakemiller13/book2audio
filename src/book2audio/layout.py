@@ -66,6 +66,40 @@ def find_gutter(lines):
     return xs[len(xs) // 2]
 
 
+def blank_facing_page(lines):
+    """A spread with one blank page (many books start chapters on a right-hand page facing
+    a blank one): only the blank page's number and running head show beside the text, so
+    find_gutter sees a single page. Returns (gutter x, the blank page's number) when the
+    only things beside the text column are a few header items above the body, else (None, None)."""
+    long = [l for l in lines if len(l["text"]) > 25]
+    if len(long) < 5:
+        return None, None
+    x0s, x1s = sorted(l["x0"] for l in long), sorted(l["x1"] for l in long)
+    left, right = x0s[len(x0s) // 10], x1s[len(x1s) * 9 // 10]
+    margin = 0.1 * (right - left)
+    body_top = min(l["y0"] for l in long)
+    outside = {0: [l for l in lines if l["x1"] < left - margin],
+               1: [l for l in lines if l["x0"] > right + margin]}
+    for blank, text_side in ((0, 1), (1, 0)):
+        stray = outside[blank]
+        if (stray and not outside[text_side] and len(stray) <= 3
+                and all(l["y0"] < body_top and len(l["text"]) <= 40 for l in stray)):
+            number = None
+            for l in stray:
+                t = l["text"].strip()
+                number = int(t) if re.fullmatch(r"\d{1,4}", t) else (split_page_number(t)[0] or number)
+            gutter = (max(l["x1"] for l in stray) + left) / 2 if blank == 0 else \
+                     (right + min(l["x0"] for l in stray)) / 2
+            return gutter, number
+    return None, None
+
+
+def facing_side_left(lines, gutter):
+    """Is the blank page of a blank_facing_page spread the left one (text right of the gutter)?"""
+    long = [l for l in lines if len(l["text"]) > 25]
+    return sum((l["x0"] + l["x1"]) / 2 > gutter for l in long) > len(long) / 2
+
+
 def looks_two_column(lines):
     """Most lines span only about half the text width: two pages side by side."""
     long = [l for l in lines if len(l["text"]) > 25]
@@ -103,6 +137,10 @@ def assemble_spreads(records):
     for (source, time), passes in frames.items():
         full = [l for l in passes["full"]["lines"] if l["text"].strip()]
         gutter = find_gutter(full)
+        facing, blank = None, None   # number and side of a blank facing page
+        if gutter is None:
+            gutter, facing = blank_facing_page(full)
+            blank = None if gutter is None else (0 if facing_side_left(full, gutter) else 1)
         if gutter is None and time is not None and looks_two_column(full):
             continue  # a spread we couldn't split (camera shake, page mid-turn); other frames cover it
         sides = [(0, None, 1.0)] if gutter is None else [(0, 0.0, gutter), (1, gutter, 1.0)]
@@ -133,7 +171,8 @@ def assemble_spreads(records):
                                if word_ratio(f["text"]) >= 0.7]
             ys = sorted(l["ly"] for l in lines)
             pages.append({"source": source, "time": time, "side": side, "lines": lines,
-                          "legibility": legibility,
+                          "legibility": legibility, "facing_number": facing,
+                          "blank_facing": blank is not None and blank != side,
                           "top": min(l["y0"] for l in lines),
                           "spacing": statistics.median(b - a for a, b in zip(ys, ys[1:]))})
     return pages
@@ -344,7 +383,8 @@ def analyze_page(page, running_heads):
     return page
 
 
-CHAPTER_RE = re.compile(r"(?i)^\s*(chapter|prologue|epilogue|interlude|part)\b")
+# "CHPTER"/"CHARTER": OCR misreads of a spaced-out small-caps CHAPTER.
+CHAPTER_RE = re.compile(r"(?i)^\s*(c[hn]a?[pr]?t[eo]r|prologue|epilogue|interlude|part)\b")
 # Some books number chapters with a Roman numeral alone ("IV"). OCR sometimes reads
 # the I's as dotted capitals ("İİİ").
 ROMAN_RE = re.compile(r"(?i)^[^A-Za-z0-9]*([IVXLC]{1,7})[^A-Za-z0-9]*$")   # specks around it: "_ IV", "• IV"
@@ -378,6 +418,18 @@ def is_chapter_label(text):
     return bool(CHAPTER_RE.match(text)) or roman_chapter(text) is not None
 
 
+DIGIT_LOOKALIKES = str.maketrans("BOoSlI", "800511")
+
+
+def chapter_label(text):
+    """'CHPTER 8' -> 'Chapter 8'; a numeral OCR read as a letter is mended: 'Chapter B' -> 'Chapter 8'."""
+    label = smart_title(re.sub(r"(?i)^\s*c[hn]a?[pr]?t[eo]r\b", "Chapter", text.strip()))
+    m = re.fullmatch(r"Chapter ([0-9BOoSlI]{1,3})", label)
+    if m and not m.group(1).isdigit() and roman_chapter(m.group(1)) is None and re.search(r"\d|^[BS]$", m.group(1)):
+        label = f"Chapter {int(m.group(1).translate(DIGIT_LOOKALIKES))}"
+    return label
+
+
 def detect_chapter_opening(page):
     """A chapter-opening page: a "Chapter N" (or Roman numeral) line near the top, an optional
     title block, then a tall blank band before the body text. Returns (title or None, heading lines)."""
@@ -394,7 +446,7 @@ def detect_chapter_opening(page):
     rest = lines[start + len(block):]
     if not rest or rest[0]["ly"] - block[-1]["ly"] < 4 * sp:
         return None, []  # no blank band: just a sentence that starts with "Chapter"
-    label = roman_chapter(block[0]["text"]) or smart_title(block[0]["text"].strip())
+    label = roman_chapter(block[0]["text"]) or chapter_label(block[0]["text"])
     title = smart_title(" ".join(l["text"].strip() for l in block[1:]))
     return (f"{label}: {title}" if title else label), block
 
@@ -467,10 +519,11 @@ def detect_running_heads(pages):
 
     groups = []   # [{variants}, {page ids}]
     for p, pid in zip(pages, page_ids):
+        _, heading = detect_chapter_opening(p)   # a chapter title isn't a running head
         for r in p["lines"]:
             t = r["text"].strip()
             n = norm(t)
-            if (not in_header(r, p) or re.fullmatch(r"\d{1,4}", t) or not n or is_chapter_label(t)
+            if (any(r is h for h in heading) or not in_header(r, p) or re.fullmatch(r"\d{1,4}", t) or not n or is_chapter_label(t)
                     or r["rx"] - r["lx"] > 0.75 * text_width(p)):
                 continue   # a full-width line at the top is body text, however often it repeats
             g = next((g for g in groups if any(difflib.SequenceMatcher(None, n, v).ratio() > 0.75
