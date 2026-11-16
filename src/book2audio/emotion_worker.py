@@ -70,5 +70,5 @@ if __name__ == "__main__":
     if sys.argv[1:] == ["--download"]:
         download()
     else:
-        os.environ.setdefault("HF_HUB_OFFLINE", "1")   # everything was fetched at setup
+        os.environ["HF_HUB_OFFLINE"] = "1"   # never download while reading: only ./setup.sh --emotion does
         serve()

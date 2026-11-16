@@ -19,7 +19,7 @@ This isn't legal advice. Copyright rules differ between countries, and you're re
 - Xcode Command Line Tools: run `xcode-select --install` if you don't have them.
 - Python 3.12 or 3.13 (the voice packages don't support 3.14 yet). If you don't have one: `brew install python@3.13`. `setup.sh` finds it even if your default `python3` is a different version.
 - [Homebrew](https://brew.sh), or ffmpeg already installed.
-- About 1 GB of free disk space (the voice model is ~340 MB), plus about 4.5 GB if you install the optional expressive voice.
+- About 1 GB of free disk space (the voice model is ~340 MB). The optional expressive voice for `--emotion` needs about 4.5 GB more, but only if you choose to install it (see below).
 - Optional, for proofreading, summaries and the expressive reading: [Claude Code](https://claude.com/claude-code) (the `claude` command), logged in to your Claude account. Everything else works without it.
 
 ## Install
@@ -37,7 +37,17 @@ cd book2audio
 - ffmpeg, with Homebrew, if it isn't installed already
 - the text recognition helper, compiled from `src/book2audio/ocr.swift`
 
-For the optional [expressive reading](#expressive-reading) (`--emotion`), run `./setup.sh --emotion` instead, once. It also installs a second, separate Python environment in `.venv-emotion` (PyTorch and the Chatterbox voice, about 1.3 GB) and downloads its models into `models/emotion` (about 3.2 GB). That takes a few minutes on a fast connection. To remove it again, delete those two folders.
+> [!IMPORTANT]
+> **The expressive voice is a separate 4.5 GB download, and it's never installed unless you ask for it.** Plain `./setup.sh` leaves it out, and everything except `--emotion` works without it. Running `--emotion` without it doesn't download anything; it stops and tells you how to install it.
+>
+> To install it, run `./setup.sh --emotion` once. Before downloading anything, it lists what it will download and asks you to confirm:
+>
+> | What | Where | Size |
+> |---|---|---|
+> | PyTorch and Chatterbox, in a separate Python environment | `.venv-emotion/` | about 1.3 GB |
+> | The Chatterbox voice and Whisper line-check models | `models/emotion/` | about 3.2 GB |
+>
+> Everything stays inside the book2audio folder. If there's less than 6 GB free, it stops before downloading. When it reads a book, the expressive voice runs offline and never downloads anything. Use `./setup.sh --emotion --yes` to skip the question in a script, and `./setup.sh --remove-emotion` to delete it all again.
 
 It's safe to run again at any time, for example after moving the folder or pulling an update. Keep the folder at a normal-length path such as `~/book2audio`: the voice's pronunciation library can't load from a very deeply nested folder, and `setup.sh` tells you if that's the case.
 
@@ -144,7 +154,7 @@ Claude's answers are saved as they arrive. If a run stops partway, for example b
 
 ### Expressive reading
 
-The usual narrator reads everything in the same even tone, so a scream and a quiet aside sound much alike. `--emotion` gives a more expressive reading. It's optional, needs a one-time `./setup.sh --emotion` (about 4.5 GB), and is many times slower than the usual reading (see the timing below), so try it on a chapter first.
+The usual narrator reads everything in the same even tone, so a scream and a quiet aside sound much alike. `--emotion` gives a more expressive reading. It's optional, needs a one-time `./setup.sh --emotion` (a 4.5 GB download that asks before it starts; see [Install](#install)), and is many times slower than the usual reading (see the timing below), so try it on a chapter first.
 
 - **Claude marks the text:** each paragraph is split into lines, and each line gets who is speaking (the narrator or a character), how intense it is, whether it's whispered or shouted, and how long a pause follows it. This sends the book's text to Claude, like `--proofread`.
 - **An expressive voice reads it:** [Chatterbox](https://github.com/resemble-ai/chatterbox), a larger voice model that can be made more or less intense line by line. It imitates your narrator from a short clip read by the usual voice, so it sounds like the same person, though not identical: it follows `--voice`, `--accent` and `--speed`.
@@ -241,7 +251,7 @@ The code is in `src/book2audio/`:
 - **Pages missing or out of order:** re-shoot the pages the run lists, slower, and pass both recordings in one run.
 - **"--proofread and --summary need the `claude` command":** install Claude Code and run `claude` once to log in.
 - **"Claude couldn't finish the proofreading/summaries/mood marks":** usually your Claude plan's usage limit. What was done is saved; run the same command again later to carry on.
-- **"--emotion needs the optional expressive voice":** run `./setup.sh --emotion` once.
+- **"--emotion needs the optional expressive voice":** it isn't installed, and book2audio won't download it on its own. If you want it, run `./setup.sh --emotion` once (about 4.5 GB; it asks first). Otherwise, leave out `--emotion`.
 - **"The expressive voice couldn't run":** the message shows the end of its log. Run `./setup.sh --emotion` again, then the same command: finished chapters and paragraphs are kept.
 - **"N line(s) may sound unclear" after an `--emotion` run:** listen to those lines. If one is wrong, run the same command again: only that paragraph is read again if you change a word in the transcript, or change nothing and delete `~/Library/Caches/book2audio/audio/emotion` to read every expressive paragraph again.
 
