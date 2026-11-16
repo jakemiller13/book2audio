@@ -80,6 +80,69 @@ def syllable_ipa(s, mark):
     return "".join(out)
 
 
+# IPA back to an everyday spelling, for a voice that only reads text (--emotion). Longest first.
+SPELL_VOWELS = [
+    ("aɪɚ", "ire"), ("aɪɹ", "ire"), ("aɪə", "ire"), ("ɛɹ", "are"), ("ɛə", "are"), ("eəɹ", "are"),
+    ("ɪɹ", "eer"), ("ɪə", "eer"), ("ɑːɹ", "ar"), ("ɑɹ", "ar"), ("ɔːɹ", "or"), ("ɔɹ", "or"),
+    ("oːɹ", "or"), ("ʊɹ", "oor"), ("ɜːɹ", "er"), ("ɜː", "er"), ("ɝ", "er"), ("ɚ", "er"),
+    ("juː", "yoo"), ("eɪ", "ay"), ("aɪ", "eye"), ("oʊ", "oh"), ("əʊ", "oh"), ("aʊ", "ow"),
+    ("ɔɪ", "oy"), ("iː", "ee"), ("uː", "oo"), ("ɑː", "ah"), ("ɔː", "aw"),
+    ("æ", "a"), ("ɛ", "e"), ("ɪ", "i"), ("ᵻ", "i"), ("ɨ", "i"), ("ʊ", "oo"), ("ʌ", "u"),
+    ("ə", "uh"), ("ɐ", "uh"), ("ɑ", "ah"), ("ɒ", "o"), ("ɔ", "aw"), ("i", "ee"), ("u", "oo"),
+    ("e", "ay"), ("o", "oh"), ("a", "ah"),
+]
+SPELL_CONSONANTS = [
+    ("dʒ", "j"), ("tʃ", "ch"), ("ʃ", "sh"), ("ʒ", "zh"), ("θ", "th"), ("ð", "th"), ("ŋ", "ng"),
+    ("ɹ", "r"), ("r", "r"), ("ɡ", "g"), ("g", "g"), ("j", "y"), ("x", "kh"), ("ɾ", "t"), ("ɫ", "l"),
+    ("ʔ", ""), ("ç", "h"),
+]
+SHORT_VOWELS = {"a", "e", "i", "u", "o", "oo"}   # read short only before a consonant ('Shan', 'Kim')
+
+
+def ipa_to_respelling(ipa):
+    """'ˈʃænəɹə' -> 'Shannuhruh', 'dʒˈɛɹ' -> 'Jare', 'ˈɛvɛntaɪn' -> 'Evventyne': spellings a
+    reader of English says the same way every time."""
+    ipa = re.sub(r"[ˈˌ. ]", "", ipa)
+    vowel_start = lambda j: j < len(ipa) and any(ipa.startswith(k, j) for k, _ in SPELL_VOWELS)
+    tokens = []   # [spelling, is_vowel]
+    i = 0
+    while i < len(ipa):
+        hit = None
+        for k, v in SPELL_VOWELS:
+            # an r-colored vowel before another vowel is a plain vowel and an r ('Eretria')
+            if ipa.startswith(k, i) and not (k[-1] in "ɹɚ" and len(k) > 1 and vowel_start(i + len(k))):
+                hit = (k, v, True)
+                break
+        if not hit:
+            hit = next(((k, v, False) for k, v in SPELL_CONSONANTS if ipa.startswith(k, i)), None)
+        if not hit:
+            hit = (ipa[i], ipa[i] if ipa[i].isascii() else "", False)
+        tokens.append([hit[1], hit[2]])
+        i += len(hit[0])
+    tokens = [t for t in tokens if t[0]]
+    n = len(tokens)
+    out = []
+    for k, (s, vowel) in enumerate(tokens):
+        nxt = tokens[k + 1] if k + 1 < n else None
+        after = tokens[k + 2] if k + 2 < n else None
+        if s == "eye" and k > 0:
+            # mid-word: 'Kogl-yne' with a silent e when one consonant ends the word, else 'y'
+            if nxt and not nxt[1] and after is None:
+                out.append("y" + nxt[0] + "e")
+                tokens[k + 1][0] = ""
+                continue
+            s = "y"
+        out.append(s)
+        # a short vowel is read short only with a consonant after it: 'Shan-nuh', 'Ev-ven'
+        if (vowel and s in SHORT_VOWELS and nxt and not nxt[1] and len(nxt[0]) == 1
+                and nxt[0] not in "rwyh" and after and after[1]):
+            out.append(nxt[0])
+    word = "".join(out)
+    if word.startswith("eye") and len(word) > 3:
+        word = "I" + word[3:]
+    return word[:1].upper() + word[1:]
+
+
 def plural(ipa):
     """The sound of a possessive or plural ending after a word: s, z or iz."""
     last = ipa.rstrip("ː")[-1:]
@@ -143,6 +206,17 @@ class Pronouncer:
             last = m.end()
         parts.append(guess(text[last:], tokenizer, lang))
         return re.sub(r"\s+([,.;:!?…)])", r"\1", " ".join(p for p in parts if p and p != "-"))
+
+    def respell(self, text):
+        """The text with each listed word written the way it sounds ('Jare' for a name said
+        like 'chair'), for a voice that reads plain text rather than phonemes (--emotion)."""
+        if not self.pattern:
+            return text
+        def sub(m):
+            ipa = self.entries[m.group(1).lower()]
+            said = (" ".join(m.group(1).upper()) if ipa == "LETTERS" else ipa_to_respelling(ipa))
+            return said + (m.group(2) or "")
+        return self.pattern.sub(sub, text)
 
     def used_in(self, text):
         """The listed words that appear in the text."""

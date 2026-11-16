@@ -1,0 +1,5 @@
+# Optional: the expressive voice for --emotion. ./setup.sh --emotion installs these into
+# .venv-emotion (kept apart from .venv: it brings PyTorch, about 1 GB).
+chatterbox-tts==0.1.7
+# Chatterbox's audio watermarking still imports pkg_resources, which setuptools 81 removed
+setuptools==80.10.2

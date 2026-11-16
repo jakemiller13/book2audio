@@ -178,18 +178,24 @@ class KokoroVoice:
         return np.zeros(int(self.rate * seconds), dtype=np.float32)
 
 
-def render_section(engine, heading, paragraphs, wav_path, progress):
+def render_section(engine, heading, paragraphs, wav_path, progress, expressive=None):
     """Speak one chapter (its heading, if given, then the paragraphs) into a WAV file and
-    return its length in seconds."""
+    return its length in seconds. With --emotion, the expressive voice reads the paragraphs
+    it wants (see emotion.py) and Kokoro the rest."""
+    def speak(text):
+        if expressive and expressive.wants(text):
+            return expressive.speak(text)
+        return engine.speak(text)
+
     chunks = []
     if heading:
-        chunks += [engine.silence(CHAPTER_PAUSE), engine.speak(heading + "."), engine.silence(CHAPTER_PAUSE)]
+        chunks += [engine.silence(CHAPTER_PAUSE), speak(heading + "."), engine.silence(CHAPTER_PAUSE)]
     for para in paragraphs:
         if para == SCENE_BREAK:
             chunks.append(engine.silence(SCENE_PAUSE))
             continue
-        chunks += [engine.speak(para), engine.silence(PARAGRAPH_PAUSE)]
-        progress(len(para.split()))
+        chunks += [speak(para), engine.silence(PARAGRAPH_PAUSE)]
+        progress(expressive.cost(para) if expressive else len(para.split()))
     audio = np.concatenate(chunks) if chunks else engine.silence(PARAGRAPH_PAUSE)
     sf.write(str(wav_path), audio, engine.rate)
     return len(audio) / engine.rate
@@ -209,20 +215,23 @@ def narration_plan(blocks, summaries):
     return plan
 
 
-def synthesize(blocks, out_path, voice, tags, summaries=None, pronouncer=None):
+def synthesize(blocks, out_path, voice, tags, summaries=None, pronouncer=None, expressive=None,
+               awake=False):
     """Narrate the blocks into an .m4b at out_path. Returns [(chapter title, start, end)].
     Each chapter's audio is kept in the cache, so making the audiobook again (say, after
-    fixing a line in the transcript) only re-reads the chapters that changed."""
+    fixing a line in the transcript) only re-reads the chapters that changed.
+    expressive: an emotion.Expressive for --emotion, or None. awake: --stay-awake."""
     if isinstance(voice, str):
         voice = Voice([(voice, 1.0)], default_lang([(voice, 1.0)]))
     plan = narration_plan(blocks, summaries)
     AUDIO_CACHE.mkdir(parents=True, exist_ok=True)
-    cached = [AUDIO_CACHE / f"{section_key(voice, pronouncer, *s)}.flac" for s in plan]
+    cached = [AUDIO_CACHE / f"{section_key(voice, pronouncer, *s, expressive=expressive)}.flac" for s in plan]
     todo = [i for i, f in enumerate(cached) if not f.is_file()]
     if len(todo) < len(plan):
         print(f"  Reusing {len(plan) - len(todo)} of {len(plan)} chapters from an earlier run",
               file=sys.stderr)
-    total_words = sum(len(p.split()) for i in todo for p in plan[i][2])
+    total_words = sum(expressive.cost(p) if expressive else len(p.split())
+                      for i in todo for p in plan[i][2] if p != SCENE_BREAK)
     done, started = [0], time.time()
 
     def progress(words):
@@ -235,12 +244,21 @@ def synthesize(blocks, out_path, voice, tags, summaries=None, pronouncer=None):
         print(f"\r  {frac:4.0%} spoken, about {eta / 60:.0f} min left   ", end="", file=sys.stderr, flush=True)
 
     engine = KokoroVoice(voice, pronouncer) if todo else None
+    if expressive:
+        expressive.kokoro = engine
+    if todo and awake:
+        stay_awake()
     with tempfile.TemporaryDirectory() as tmp:
         chapters, t = [], 0.0
         for i, ((title, heading, paras), f) in enumerate(zip(plan, cached)):
             if i in todo:
                 part = f.with_suffix(".part.flac")   # renamed when complete, so a stopped run leaves no half file
-                render_section(engine, heading, paras, part, progress)
+                try:
+                    render_section(engine, heading, paras, part, progress, expressive)
+                except BaseException:
+                    if expressive:
+                        expressive.close()
+                    raise
                 part.replace(f)
             else:
                 os.utime(f)   # recently used, so prune_audio_cache keeps it
@@ -249,19 +267,34 @@ def synthesize(blocks, out_path, voice, tags, summaries=None, pronouncer=None):
             t += dur
         if todo:
             print(file=sys.stderr)
+        if expressive:
+            expressive.close()
+            expressive.report()
         encode_with_chapters(cached, chapters, out_path, tags, Path(tmp))
     prune_audio_cache()
     return chapters
 
 
-def section_key(voice, pronouncer, title, heading, paras):
-    """Everything that changes how a chapter sounds: its text, the voice and the
-    pronunciations of the listed words it contains."""
+def stay_awake():
+    """--stay-awake: keep the Mac from going to sleep on its own while this run makes audio
+    (macOS's caffeinate, which ends with this process). Closing the lid still puts it to sleep."""
+    try:
+        subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        pass
+
+
+def section_key(voice, pronouncer, title, heading, paras, expressive=None):
+    """Everything that changes how a chapter sounds: its text, the voice, the
+    pronunciations of the listed words it contains and, with --emotion, its marks."""
     text = "\n".join([heading or ""] + paras)
     words = pronouncer.used_in(text) if pronouncer else []
     sounds = {w: pronouncer.entries[w] for w in words} if pronouncer else {}
     key = [narration_code(), MODEL_FILE.stat().st_size, voice.parts, voice.lang, voice.speed,
            pronouncer is not None, text, sounds]
+    if expressive:
+        key.append(expressive.fingerprint([heading] + paras if heading else paras))
     return hashlib.sha1(json.dumps(key, ensure_ascii=False, default=str).encode()).hexdigest()
 
 
@@ -275,7 +308,7 @@ def narration_code():
 def prune_audio_cache(days=30):
     """Chapter audio not used for a month goes (about 80 MB per hour of audio)."""
     cutoff = time.time() - days * 86400
-    for f in AUDIO_CACHE.glob("*.flac"):
+    for f in [*AUDIO_CACHE.glob("*.flac"), *AUDIO_CACHE.glob("emotion/*.flac")]:
         if f.stat().st_mtime < cutoff:
             f.unlink(missing_ok=True)
 
