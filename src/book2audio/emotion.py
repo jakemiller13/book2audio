@@ -40,6 +40,7 @@ LONG_WORDS = 60        # a longer line is split at sentence ends (the voice drif
 MAX_INTENSITY = 0.8    # the voice is least stable at the very top of its range
 EXPRESSIVE_AT = 0.6    # hybrid: a paragraph this intense, or with dialogue, gets the expressive voice
 TRIES = 3              # attempts at a line that the checker doesn't hear as written
+FULL = 0.9             # restart the expressive voice when its GPU memory is this full
 SLOWER = 30            # the expressive voice takes roughly this many times as long as Kokoro
 GAIN = {"whisper": 0.6, "normal": 1.0, "loud": 1.15}
 REF_TEXT = ("The road wound north through the hills, and the travelers followed it in silence for "
@@ -184,6 +185,8 @@ class Expressive:
         self.proc = None
         self.rate = 24000
         self.unclear = []           # lines still unclear after every try
+        self.stand_ins = 0          # lines Kokoro read because the expressive voice failed
+        self.restarts = 0
 
     def wants(self, para):
         """Whether the expressive voice reads this paragraph (or heading, or summary)."""
@@ -212,12 +215,15 @@ class Expressive:
             audio, self.rate = sf.read(str(f), dtype="float32")
             return audio
         self.start()
+        stand_ins = self.stand_ins
         out = []
         for k, s in enumerate(segs):
             out.append(self.line(s) * GAIN[s["volume"]])
             if k < len(segs) - 1:
                 out.append(np.zeros(int(self.rate * s["pause"]), np.float32))
         audio = np.clip(np.concatenate(out), -1, 1)
+        if self.stand_ins > stand_ins:   # not kept, so the next run tries the expressive voice again
+            return audio
         part = f.with_suffix(".part.flac")
         sf.write(str(part), audio, self.rate)
         part.replace(f)
@@ -232,9 +238,15 @@ class Expressive:
         for attempt in range(TRIES):
             with tempfile.TemporaryDirectory() as tmp:
                 out = Path(tmp) / "line.npy"
-                r = self.ask({"cmd": "say", "text": text, "exaggeration": round(0.3 + 0.7 * it, 2),
-                              "cfg": round(0.55 - 0.3 * it, 2), "out": str(out),
-                              "seed": int(hashlib.sha1(text.encode()).hexdigest()[:7], 16) + attempt})
+                req = {"cmd": "say", "text": text, "exaggeration": round(0.3 + 0.7 * it, 2),
+                       "cfg": round(0.55 - 0.3 * it, 2), "out": str(out),
+                       "seed": int(hashlib.sha1(text.encode()).hexdigest()[:7], 16) + attempt}
+                r = self.ask(req)
+                if "out of memory" in str(r.get("error", "")):
+                    self.restart("it ran out of memory")   # a fresh start frees it; try again
+                    r = self.ask(req)
+                elif r.get("memory", 0) > FULL:
+                    self.restart(None)                      # before it runs out on the next line
                 if not r.get("ok"):
                     error = r.get("error")
                     continue
@@ -249,6 +261,7 @@ class Expressive:
             if score >= 1:
                 break
         if best is None:   # the voice failed outright: Kokoro reads the line instead
+            self.stand_ins += 1
             print(f"\n  The expressive voice failed on a line ({error}); Kokoro read it instead.",
                   file=sys.stderr)
             return self.kokoro.speak(seg["text"])
@@ -270,14 +283,23 @@ class Expressive:
         clip = self.kokoro.speak(REF_TEXT)
         sf.write(str(ref), clip, self.kokoro.rate)
         self.target = speech_level(clip, self.kokoro.rate)
-        self.log = open(self.cache / "voice.log", "w")
-        print("\n  Starting the expressive voice...", file=sys.stderr)
+        self.log = open(self.cache / "voice.log", "a" if self.restarts else "w")
+        if not self.restarts:
+            print("\n  Starting the expressive voice...", file=sys.stderr)
         self.proc = subprocess.Popen([str(VENV_PYTHON), str(WORKER)], stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, stderr=self.log, text=True, bufsize=1)
         self.rate = self.read()["rate"]
         r = self.ask({"cmd": "voice", "path": str(ref)})
         if not r.get("ok"):
             self.fail(r.get("error"))
+
+    def restart(self, why):
+        """A fresh expressive voice, which starts with its GPU memory empty."""
+        if why:
+            print(f"\n  The expressive voice {why}; restarting it.", file=sys.stderr)
+        self.restarts += 1
+        self.close()
+        self.start()
 
     def ask(self, req):
         self.proc.stdin.write(json.dumps(req) + "\n")
@@ -309,6 +331,10 @@ class Expressive:
             self.log.close()
 
     def report(self):
+        if self.stand_ins:
+            print(f"{self.stand_ins} line(s) were read by the usual voice because the expressive "
+                  f"voice failed on them. Run the same command again to retry just those.",
+                  file=sys.stderr)
         if self.unclear:
             print(f"{len(self.unclear)} line(s) may sound unclear (the check didn't hear them as "
                   f"written, even after {TRIES} tries):", file=sys.stderr)
@@ -316,9 +342,14 @@ class Expressive:
                 print(f"  {t[:70]}{'...' if len(t) > 70 else ''}", file=sys.stderr)
 
 
+# Part of each cached paragraph's key. Change it whenever a change to emotion.py or
+# emotion_worker.py changes how the expressive voice sounds, so cached paragraphs are read
+# again; leave it alone otherwise. (It began as a fingerprint of v1.4.0's code.)
+SOUND_VERSION = "4951a087fa1f"
+
+
 def code_version():
-    here = Path(__file__).parent
-    return hashlib.sha1(b"".join((here / f).read_bytes() for f in ("emotion.py", "emotion_worker.py"))).hexdigest()[:12]
+    return SOUND_VERSION
 
 
 # --- Audio clean-up
