@@ -31,6 +31,7 @@ examples:
   ./book2audio ~/Downloads/IMG_1234.MOV
   ./book2audio ~/Downloads/IMG_1234.MOV --proofread --summary --pronunciations my-book.txt
   ./book2audio ~/Downloads/IMG_1234.MOV --voice george --speed 1
+  ./book2audio ~/Downloads/IMG_1234.MOV --pages-per-chapter 10
   ./book2audio "output/My Book - Ch 20-21.md" --summary --text-only
   ./book2audio "output/My Book - Ch 20-21.md" --pronunciations my-book.txt
   ./book2audio "output/My Book - Ch 20-21.md" --emotion hybrid --pronunciations my-book.txt
@@ -49,6 +50,10 @@ def parse_args():
     ap.add_argument("--from-chapter", type=int, metavar="N",
                     help="start at chapter N, leaving out the end of the chapter before it "
                          "(e.g. when the last recording already covered it)")
+    ap.add_argument("--pages-per-chapter", type=int, metavar="N",
+                    help="for a book without chapters: start a new chapter about every N pages "
+                         "(e.g. 10), at a paragraph break near pages 11, 21, 31, ..., named "
+                         "\"Pages 11-20\"")
 
     g = ap.add_argument_group("voice")
     g.add_argument("--voice", metavar="NAME",
@@ -98,6 +103,15 @@ def parse_args():
             ap.error("give a transcript (.md) on its own, without photos or videos")
         if not Path(args.inputs[0]).expanduser().is_file():
             ap.error(f"not found: {args.inputs[0]}")
+    if args.pages_per_chapter is not None:
+        if args.pages_per_chapter < 1:
+            ap.error("--pages-per-chapter needs a number of pages, e.g. 10")
+        if args.transcript:
+            ap.error("--pages-per-chapter works from the photos or video (a transcript has no page "
+                     "numbers); its chapters are already in the transcript")
+        if args.from_chapter is not None:
+            ap.error("--from-chapter and --pages-per-chapter don't go together: with "
+                     "--pages-per-chapter the book has no numbered chapters")
     return args
 
 
@@ -183,7 +197,8 @@ def read_pages(args):
     if not pages:
         sys.exit("No readable book pages were found in the input.")
     heads = layout.detect_running_heads(pages)
-    pages = [layout.analyze_page(p, heads) for p in pages]
+    by_pages = args.pages_per_chapter
+    pages = [layout.analyze_page(p, heads, chapters=not by_pages) for p in pages]
     title, author = layout.book_tags(pages, heads)
     title, author = args.title or title, args.author or author
     pages = ordering.order_pages(pages)
@@ -192,7 +207,14 @@ def read_pages(args):
         print(f"Pages {min(nums)}-{max(nums)} ({len(pages)} pages)", file=sys.stderr)
     report_cut_off(pages)
 
-    blocks = text.label_continued(text.build_text(pages))
+    if by_pages:
+        cuts = text.cut_pages(pages, by_pages)
+        print(f"{len(cuts)} chapter(s) of about {by_pages} pages: {', '.join(cuts)}", file=sys.stderr)
+    blocks = text.build_text(pages)
+    if not by_pages and len(pages) >= 30 and not any(kind == "chapter" for kind, _ in blocks):
+        print("No chapter headings were found, so this is all one chapter. If the book has no "
+              "chapters, --pages-per-chapter 10 starts a new one about every 10 pages.", file=sys.stderr)
+    blocks = text.label_continued(blocks)
     contents = text.describe_contents(from_chapter(blocks, args.from_chapter), pages)
     if args.output:
         out = Path(args.output).expanduser()

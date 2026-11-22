@@ -44,7 +44,8 @@ def sentence_case_lead_in(t):
 
 
 def build_text(pages):
-    """Return list of (kind, text) blocks: ('chapter', title) or ('para', text)."""
+    """Return list of (kind, text) blocks: ('chapter', title) or ('para', text). A row marked
+    with a 'section' (see cut_pages) starts a chapter of that name."""
     blocks = []
     para = ""
 
@@ -63,9 +64,12 @@ def build_text(pages):
                 p["body"][0]["text"] = sentence_case_lead_in(clean_line(p["body"][0]["text"]))
         for i, r in enumerate(p["body"]):
             t = clean_line(r["text"])
-            if r.get("para_start") or (i == 0 and prev_short):
+            if r.get("section"):
                 flush()
-            if r.get("scene_break"):
+                blocks.append(("chapter", r["section"]))
+            elif r.get("para_start") or (i == 0 and prev_short):
+                flush()
+            if r.get("scene_break") and not r.get("section"):
                 blocks.append(("break", ""))
             if para.endswith("-") and t[:1].islower():
                 para = para[:-1] + t          # re-join hyphenated word
@@ -77,6 +81,55 @@ def build_text(pages):
             prev_short = p["body"][-1].get("short", False)
     flush()
     return blocks
+
+
+def cut_pages(pages, n):
+    """--pages-per-chapter N, for a book without chapters: a new chapter every N pages, named
+    'Pages 11-20'. Cuts fall at pages 1, N+1, 2N+1, ... of the book's own numbering, so separate
+    recordings of one book agree, each moved to the nearest place a paragraph starts (a scene
+    break if there is one within a page), so no sentence is cut in two. A piece under half of N
+    pages at the start or end of the recording joins its neighbour. Marks the rows where the
+    chapters start (build_text reads the marks) and returns the chapter names."""
+    pages = [p for p in pages if p["body"]]
+    if not pages:
+        return []
+    numbered = all(p["number"] is not None for p in pages)
+    num = [p["number"] if numbered else i + 1 for i, p in enumerate(pages)]
+
+    # Where a paragraph starts, as a position in pages: 11.0 is the top of page 11.
+    starts, prev_short = [], False
+    for i, p in enumerate(pages):
+        rows = p["body"]
+        for j, r in enumerate(rows):
+            if r.get("para_start") or (j == 0 and prev_short):
+                starts.append((num[i] + j / len(rows), r))
+        prev_short = rows[-1].get("short", False)
+
+    first, last = num[0], num[-1]
+    cuts, after = [], first
+    for b in range(n + 1, last + 1, n):
+        if b - first < n / 2 or last + 1 - b < n / 2:
+            continue
+        near = [(pos, r) for pos, r in starts if pos > after and abs(pos - b) <= n / 2]
+        scenes = [(pos, r) for pos, r in near if r.get("scene_break") and abs(pos - b) <= 1]
+        if near:
+            pos, row = min(scenes or near, key=lambda c: abs(c[0] - b))
+            cuts.append((b, row))
+            after = pos
+
+    bounds = [first] + [b for b, _ in cuts] + [last + 1]
+    names = [f"Pages {a}-{b - 1}" if b - 1 > a else f"Page {a}" for a, b in zip(bounds, bounds[1:])]
+    for name, row in zip(names, [pages[0]["body"][0]] + [r for _, r in cuts]):
+        row["section"] = name
+    return names
+
+
+PAGE_SECTION = re.compile(r"Pages? (\d+)(?:-(\d+))?")
+
+
+def is_page_section(title):
+    """A chapter made by --pages-per-chapter: 'Pages 11-20'."""
+    return PAGE_SECTION.fullmatch(title) is not None
 
 
 def label_continued(blocks):
