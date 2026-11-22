@@ -15,7 +15,7 @@ import numpy as np
 import soundfile as sf
 
 from . import ROOT
-from .text import SCENE_BREAK, is_continued, sections, short_label
+from .text import SCENE_BREAK, is_continued, is_page_section, sections, short_label
 
 MODELS = ROOT / "models"
 MODEL_FILE = MODELS / "kokoro-v1.0.onnx"
@@ -190,6 +190,8 @@ def render_section(engine, heading, paragraphs, wav_path, progress, expressive=N
     chunks = []
     if heading:
         chunks += [engine.silence(CHAPTER_PAUSE), speak(heading + "."), engine.silence(CHAPTER_PAUSE)]
+    elif heading == "":   # a chapter with an unspoken title: just the pause
+        chunks.append(engine.silence(CHAPTER_PAUSE))
     for para in paragraphs:
         if para == SCENE_BREAK:
             chunks.append(engine.silence(SCENE_PAUSE))
@@ -202,16 +204,21 @@ def render_section(engine, heading, paragraphs, wav_path, progress, expressive=N
 
 
 def narration_plan(blocks, summaries):
-    """The audiobook's chapters, in order: [(chapter title, spoken heading or None, paragraphs)].
-    With summaries, each chapter is followed by its own 'Chapter 33 – Summary' chapter,
-    which a listener can skip like any other."""
+    """The audiobook's chapters, in order: [(chapter title, spoken heading, paragraphs)]; the
+    spoken heading is None for none, or "" for a pause alone. With summaries, each chapter is
+    followed by its own 'Chapter 33 – Summary' chapter, which a listener can skip like any other.
+    Chapters cut by --pages-per-chapter ('Pages 11-20') aren't announced: the story carries on
+    after a pause, as the book does."""
     summaries = dict(summaries or [])
     plan = []
     for title, paras in sections(blocks):
-        plan.append((title, None if is_continued(title) else title, paras))
+        pages = is_page_section(title)
+        plan.append((title, "" if pages else None if is_continued(title) else title, paras))
         if title in summaries:
             label = short_label(title)
-            plan.append((f"{label} – Summary", f"{label}, summary", [summaries[title]]))
+            spoken = (f"Summary of {label.lower().replace('-', ' to ')}" if pages
+                      else f"{label}, summary")
+            plan.append((f"{label} – Summary", spoken, [summaries[title]]))
     return plan
 
 
@@ -298,6 +305,8 @@ def section_key(voice, pronouncer, title, heading, paras, expressive=None):
     sounds = {w: pronouncer.entries[w] for w in words} if pronouncer else {}
     key = [narration_code(), MODEL_FILE.stat().st_size, voice.parts, voice.lang, voice.speed,
            pronouncer is not None, text, sounds]
+    if heading == "":
+        key.append("pause first")
     if expressive:
         key.append(expressive.fingerprint([heading] + paras if heading else paras))
     return hashlib.sha1(json.dumps(key, ensure_ascii=False, default=str).encode()).hexdigest()

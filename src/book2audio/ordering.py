@@ -71,13 +71,26 @@ def order_pages(pages):
         v = votes[id(c)]
         c["number"] = v.most_common(1)[0][0] if v else None
 
-    # 3. Anything still unnumbered follows whatever came just before it in the input.
+    # 3. Anything still unnumbered: in a video, a spread follows the spread before it (its left
+    #    page one after that spread's right page); anything else follows whatever came just
+    #    before it in the input. Books that print the page number at the foot of the page get
+    #    it read in only a few frames, so most spreads are numbered this way.
     clusters.sort(key=lambda c: c["first"])
+    mates = spread_partners(frames)
     if any(c["number"] is not None for c in clusters):
-        for prev, c in zip(clusters, clusters[1:]):
-            if c["number"] is None and prev["number"] is not None:
+        last_spread = {}   # video -> the right-hand page number of the latest spread
+        for prev, c in zip([None] + clusters, clusters):
+            mate, side = mates.get(id(c), (None, None))
+            if c["number"] is None and mate is not None:
+                if mate["number"] is not None:
+                    c["number"] = mate["number"] + (1 if side == 1 else -1)
+                elif c["members"][0]["source"] in last_spread:
+                    c["number"] = last_spread[c["members"][0]["source"]] + (1 if side == 0 else 2)
+            if c["number"] is None and prev is not None and prev["number"] is not None:
                 # A chapter page facing a blank one: the blank page has a number too.
                 c["number"] = prev["number"] + (2 if best_view(c).get("blank_facing") else 1)
+            if mate is not None and c["number"] is not None:
+                last_spread[c["members"][0]["source"]] = c["number"] + (1 if side == 0 else 0)
         # Before the first numbered page, count down from the lowest number that follows (a
         # spread's right page is often read first: page 1 comes before 2, not before 3).
         first_known = next(i for i, c in enumerate(clusters) if c["number"] is not None)
@@ -104,8 +117,49 @@ def order_pages(pages):
     for c in clusters:
         view = best_view(c)
         view["number"] = c["number"]
+        restore_last_line(view, c["members"])
         ordered.append(view)
     return ordered
+
+
+def restore_last_line(view, members):
+    """Even the clearest view of a page can miss a short last line (one word ending a
+    sentence) that most of the page's other clear views read: add it back."""
+    if not view["body"] or view["body"][-1].get("short"):
+        return   # the page ends with the end of a paragraph: nothing missing
+
+    def key(text):
+        return re.sub(r"[^a-z]", "", text.lower())[-12:]
+
+    last = key(view["body"][-1]["text"])
+    good = [m for m in members if m is not view and m["body"] and m["quality"] >= 0.8 * view["quality"]]
+    longer = [m for m in good if len(m["body"]) >= 2 and key(m["body"][-2]["text"]) == last]
+    if last and good and len(longer) > len(good) / 2:
+        best = max(longer, key=lambda m: m["quality"])
+        view["body"] = view["body"] + [dict(best["body"][-1])]
+
+
+def spread_partners(frames):
+    """In a video, the two pages of a spread are seen side by side in many frames; a page
+    glimpsed mid-turn, in one or two. {id(cluster): (facing cluster, 0 for the left page or
+    1 for the right)} for pages that are each other's most frequent neighbour in at least
+    three frames."""
+    pairs, clusters = Counter(), {}
+    for views in frames.values():
+        if len(views) != 2:
+            continue
+        l, r = sorted(views, key=lambda p: p["side"])
+        if l["side"] == r["side"] or l["cluster"] is r["cluster"]:
+            continue
+        pairs[id(l["cluster"]), id(r["cluster"])] += 1
+        clusters[id(l["cluster"])], clusters[id(r["cluster"])] = l["cluster"], r["cluster"]
+    best = {}
+    for (l, r), n in pairs.items():
+        for me, other, side in ((l, r, 0), (r, l, 1)):
+            if n > best.get(me, (None, None, 0))[2]:
+                best[me] = (other, side, n)
+    return {me: (clusters[other], side) for me, (other, side, n) in best.items()
+            if n >= 3 and best.get(other, (None,))[0] == me}
 
 
 def bigrams(page):

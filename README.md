@@ -89,6 +89,9 @@ The results go in `output/`, named from what was read:
 # The recording starts with the end of chapter 25, which you've already heard
 ./book2audio ~/Downloads/IMG_1234.MOV --from-chapter 26
 
+# A book without chapters: start a new chapter about every 10 pages
+./book2audio ~/Downloads/IMG_1234.MOV --pages-per-chapter 10
+
 # Say the book's invented names your way (see Pronunciations below)
 ./book2audio ~/Downloads/IMG_1234.MOV --pronunciations ~/Books/my-book.txt
 
@@ -113,8 +116,9 @@ If pages are missing between or within recordings, the run prints which page num
 | `--summary` | Writes a one-paragraph summary of each chapter (`.summary.md`) and reads each one aloud as a separate "Chapter 20 – Summary" chapter right after the chapter it covers |
 | `--emotion hybrid\|full` | A more expressive reading (see [Expressive reading](#expressive-reading)). `hybrid`: the expressive voice reads dialogue and intense paragraphs, the usual voice the rest. `full`: the expressive voice reads everything. Needs `./setup.sh --emotion`; much slower |
 | `--from-chapter N` | Starts at chapter N, leaving out the end of the chapter before it, e.g. when your last recording already covered it |
+| `--pages-per-chapter N` | For a book without chapters: starts a new chapter about every N pages, named "Pages 11-20" (see [Chapters](#chapters)) |
 | `-o FILE` | Output file. By default it's named from the contents, e.g. `output/<Book> - Ch 20-21.m4b` |
-| `--title`, `--author` | Book title and author tags. By default they're read from the running heads (author on left-hand pages, title on right-hand pages). Use these for a single photo or a book laid out differently |
+| `--title`, `--author` | Book title and author tags. By default they're read from the running heads: usually the author on left-hand pages and the title on right-hand pages, and the other way round when only the left-hand head reads like a title (it has small words such as "the" or "of", and the right-hand one has none). Use these for a single photo or if the run gets them wrong |
 | `--text-only` | Writes the transcript (and summaries, with `--summary`), with no audio |
 | `INPUT.md` | A transcript from an earlier run: works from it again without redoing text recognition. Edit it first if you like. Only the chapters whose text, voice, pronunciations or `--emotion` setting changed are read again, so fixing a line takes seconds to a minute. Give the `.ocr.md` with `--proofread` to proofread it again, e.g. after fixing something by hand |
 | `--stay-awake` | Keeps the Mac from going to sleep on its own while the audio is made, so a long run (such as `--emotion`) can be left unattended. Off unless you ask for it; it ends with the run. Closing the lid still puts the Mac to sleep |
@@ -145,7 +149,7 @@ Splitting it in two like this means you can check the names before any audio is 
 
 Both steps are optional and off unless you ask for them. They use Claude through the `claude` command (Claude Code) and your existing login, with no extra setup, and they send the book's text to Anthropic.
 
-- **Proofreading (`--proofread`):** text recognition makes small mistakes, such as `rn` read as `m` or a dropped quotation mark, and the voice would read them aloud. Each chapter goes to Claude (a long one in parts of about 4,000 words), with instructions to fix recognition errors only, without rewording. If a part comes back more than 10% longer or shorter, the original text is kept and the run names the chapter so you can check it: Claude may have dropped something, or rightly removed junk such as a duplicated page. The unproofread text is saved as `.ocr.md`.
+- **Proofreading (`--proofread`):** text recognition makes small mistakes, such as `rn` read as `m` or a dropped quotation mark, and the voice would read them aloud. Each chapter goes to Claude (a long one in parts of about 4,000 words), with instructions to fix recognition errors only, without rewording. If a part comes back more than 10% longer or shorter, the original text is kept and the run names the chapter so you can check it: Claude may have dropped something, or rightly removed junk such as a duplicated page. If Claude leaves out a chapter's heading line, it's put back. The unproofread text is saved as `.ocr.md`.
 - **Summaries (`--summary`):** a short paragraph (under about 90 words) per chapter, covering only the text that was read, saved as `.summary.md`. Each summary is also read aloud as its own chapter right after the chapter it covers, so you can skip it, or jump back to it before you carry on with the book. A chapter the recording started partway through is summarized from the part that was read, and sections too short to summarize (under about 80 words) are left out. With `--text-only`, you get just the summaries file, handy for a book club.
 
 Both use your Claude plan's usage. Proofreading uses the most, since the whole text comes back; summaries send the whole text but get only a paragraph per chapter back. For a recording of about 40,000 words, proofreading and summaries take about 5–10 minutes.
@@ -208,6 +212,10 @@ A recording usually starts partway through a chapter. That opening text gets its
 
 A blank gap in the middle of a page (a scene break) is not a chapter. It becomes a 1.5-second pause in the audio and a `* * *` line in the transcript. A scene break that falls exactly at a page boundary can't be seen and is read straight through.
 
+**A book without chapters:** with no chapter headings, a recording is one long chapter, which is hard to find your place in. `--pages-per-chapter 10` starts a new chapter about every 10 pages instead (the run suggests it when it finds no chapter headings). The cuts go near pages 11, 21, 31 and so on of the book's own numbering, so separate recordings of the same book line up. Each cut moves to the nearest paragraph start (or a scene break, if there's one within a page), so no sentence is cut in two. The chapters are named "Pages 11-20". The name isn't read aloud: the story carries on after a short pause, as it does in the book. With `--summary`, each summary is announced as "Summary of pages 11 to 20". A piece of less than half the chosen length at the start or end of a recording joins its neighbour, so a recording of pages 36-101 gives "Pages 36-40", "Pages 41-50", … "Pages 91-101". With this option the run doesn't look for chapter headings at all, so don't use it on a book that has them. Use it on the photos or video, not on a transcript: the transcript has no page numbers, but the chapters it was made with are kept in it.
+
+Page numbers are read from the top of the page, or from the foot of the page in books that print them there. In a video, a page number at the foot is often read in only a few frames; the pages in between are numbered from the facing pages and the spreads around them.
+
 ## Listening on your phone
 
 The `.m4b` file is a standard audiobook file with chapter markers.
@@ -234,8 +242,8 @@ The code is in `src/book2audio/`:
 |---|---|
 | `capture.py`, `ocr.swift` | Runs Apple's Vision framework on each photo or video frame: on the full image, on each page cropped at the detected spine, and as a "fast" pass that catches short lines the accurate pass misses. A photo taken sideways or upside down is turned upright first. Vision handles one image at a time per process, so several helper processes run in parallel |
 | `layout.py` | Splits each spread into pages; removes running heads, page numbers, text outside the page and blurry frames (and frames caught mid page-turn); orders lines on curved pages; finds paragraph indents, scene breaks and chapter openings |
-| `ordering.py` | Matches the many views of each page by their text and keeps the clearest. Page numbers are decided by vote, with evidence from the facing page. A read page number is ignored unless another page has a number close to it, which filters misreads like "867" while still allowing recordings of separate parts of the book |
-| `text.py` | Rebuilds paragraphs and writes the Markdown transcript |
+| `ordering.py` | Matches the many views of each page by their text and keeps the clearest (adding a short last line the clearest one missed, if most of the others read it). Page numbers are decided by vote, with evidence from the facing page. A read page number is ignored unless another page has a number close to it, which filters misreads like "867" while still allowing recordings of separate parts of the book. In a video, a spread with no number read follows the spread before it |
+| `text.py` | Rebuilds paragraphs, cuts a book without chapters every N pages (`--pages-per-chapter`), and writes the Markdown transcript |
 | `claude.py` | Proofreading and summaries, through `claude -p` |
 | `pronounce.py` | Reads `--pronunciations` lists and turns respellings into the sounds the voice speaks (and, for `--emotion`, sounds back into plain spellings) |
 | `speech.py` | Kokoro speaks each chapter, and ffmpeg packages everything as an AAC `.m4b` with a chapter track |

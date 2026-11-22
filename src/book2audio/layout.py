@@ -311,11 +311,12 @@ def robust_fit(ys, xs, deg=2):
     return lambda y: float(np.polyval(coef, y))
 
 
-def analyze_page(page, running_heads):
-    """Pull out page number / running head / chapter heading; mark paragraph starts."""
+def analyze_page(page, running_heads, chapters=True):
+    """Pull out page number / running head / chapter heading; mark paragraph starts.
+    chapters=False: the book has no chapters (--pages-per-chapter), so don't look for any."""
     page["number"] = None
     drop_above_running_head(page, running_heads)
-    page["chapter"], heading_lines = detect_chapter_opening(page)
+    page["chapter"], heading_lines = detect_chapter_opening(page) if chapters else (None, [])
     lines = []
     for l in page["lines"]:
         if any(l is h for h in heading_lines):
@@ -326,6 +327,8 @@ def analyze_page(page, running_heads):
             page["number"] = int(t)
         elif in_header(l, page) and is_running_head(head, running_heads):
             page["number"] = num if num is not None else page["number"]   # "212 JANE AUTHOR"
+        elif in_footer(l, page) and re.fullmatch(r"\d{1,4}", t):
+            page["number"] = page["number"] if page["number"] is not None else int(t)
         else:
             lines.append(l)
 
@@ -484,6 +487,12 @@ def in_header(line, page):
     return line["y0"] < page["top"] + 2 * page["spacing"]
 
 
+def in_footer(line, page):
+    """Some books print the page number at the foot of the page instead (and many do on a
+    chapter's first page): on the lowest line, below the text."""
+    return line["y0"] > max(l["y0"] for l in page["lines"]) - 0.5 * page["spacing"]
+
+
 def smart_title(s):
     small = {"and", "of", "the", "a", "an", "in", "on", "to", "for"}
     words = s.lower().split()
@@ -543,9 +552,20 @@ def text_width(page):
     return statistics.median(widths) if widths else 1.0
 
 
+# Everyday small words: a title usually has some ("Pride and Prejudice"), a name has none.
+SMALL_WORDS = {"a", "an", "the", "of", "and", "or", "in", "on", "at", "to", "for", "from", "with",
+               "who", "what", "when", "where", "why", "how", "i", "my", "me", "we", "our", "you",
+               "is", "was", "are", "have", "has", "had", "never", "not", "no", "all"}
+
+
+def has_small_words(text):
+    return any(w in SMALL_WORDS for w in re.findall(r"[a-z]+", text.lower()))
+
+
 def book_tags(pages, heads):
     """Book title and author from the running heads. By convention the author heads the
-    left-hand pages and the title the right-hand ones (as in many books)."""
+    left-hand pages and the title the right-hand ones (as in many books); some books do it the
+    other way round, which shows when only the left-hand head reads like a title."""
     by_side = {0: Counter(), 1: Counter()}
     for p in pages:
         for l in p["lines"]:
@@ -555,4 +575,7 @@ def book_tags(pages, heads):
     def pick(c):   # running heads are often in capitals: "JANE AUSTEN" -> "Jane Austen"
         t = c.most_common(1)[0][0] if c else None
         return smart_title(t) if t and t.isupper() else t
-    return pick(by_side[1]), pick(by_side[0])   # (title, author)
+    title, author = pick(by_side[1]), pick(by_side[0])
+    if title and author and has_small_words(author) and not has_small_words(title):
+        title, author = author, title
+    return title, author

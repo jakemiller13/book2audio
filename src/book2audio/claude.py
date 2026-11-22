@@ -148,6 +148,7 @@ def proofread(md_text):
     print(f"  {len(jobs)} part(s) in {len(split_chapters(md_text))} chapter(s)...", file=sys.stderr)
     out, kept = [], []
     for (heading, part), fixed in zip(where, run_all(jobs, "proofreading")):
+        fixed = keep_heading(part, fixed)
         ratio = len(fixed.split()) / max(1, len(part.split()))
         if not 0.9 <= ratio <= 1.1:
             kept.append(f"{heading} (proofread text was {ratio:.0%} of the original)")
@@ -158,6 +159,15 @@ def proofread(md_text):
               + "\n  ".join(kept) + "\n  Claude may have dropped text, or rightly removed junk "
               "such as a duplicated page. Check that part of the transcript (.md).", file=sys.stderr)
     return "\n\n".join(out) + "\n"
+
+
+def keep_heading(part, fixed):
+    """Claude sometimes leaves out a chapter's heading line (a 'Pages 61-70' heading looks like
+    a page header to clean away), which would merge the chapter into the one before: put it back."""
+    first = part.splitlines()[0]
+    if first.startswith("## ") and not fixed.lstrip().startswith("## "):
+        return f"{first}\n\n{fixed.lstrip()}"
+    return fixed
 
 
 def summarize(blocks):
