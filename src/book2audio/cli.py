@@ -67,7 +67,7 @@ def parse_args():
                         f"(default {speech.DEFAULT_SPEED})")
     g.add_argument("--list-voices", action="store_true", help="list the voices and exit")
     g.add_argument("--voice-samples", action="store_true",
-                   help="write a short clip of each suggested voice to voice_samples/ and exit")
+                   help="write a short clip of every voice (and the default) to voice_samples/ and exit")
     g.add_argument("--pronunciations", metavar="FILE", action="append",
                    help="how to say particular words, one per line:  Zarathel = ZAR-uh-thel  "
                         "(see README; give it more than once to combine lists)")

@@ -295,6 +295,14 @@ def group_visual_rows(lines):
     return out
 
 
+def straight_margins(long_lines):
+    """The text's left and right edges on a page with too few full lines (under 10, as on a
+    section's short last page) to measure its curl: a curve through so few bends with a
+    paragraph's short last line, or a signature set flush right, and cuts into the text."""
+    lo, hi = min(l["lx"] for l in long_lines), max(l["rx"] for l in long_lines)
+    return (lambda y: lo), (lambda y: hi)
+
+
 def robust_fit(ys, xs, deg=2):
     """Fit x = f(y) ignoring outliers (indented lines). Handles page curvature."""
     ys, xs = np.asarray(ys), np.asarray(xs)
@@ -335,8 +343,9 @@ def analyze_page(page, running_heads, chapters=True):
     # Drop specks outside the text block (show-through, fingers, page edges).
     long_lines = [l for l in lines if len(l["text"]) > 25]
     if len(long_lines) >= 5:
-        left = robust_fit([l["ly"] for l in long_lines], [l["lx"] for l in long_lines])
-        right = robust_fit([l["ry"] for l in long_lines], [l["rx"] for l in long_lines])
+        left, right = (straight_margins(long_lines) if len(long_lines) < 10 else
+                       (robust_fit([l["ly"] for l in long_lines], [l["lx"] for l in long_lines]),
+                        robust_fit([l["ry"] for l in long_lines], [l["rx"] for l in long_lines])))
         lines = [l for l in lines
                  if l["rx"] > left(l["ly"]) + 0.01 and l["lx"] < right(l["ry"]) - 0.01]
     body = group_visual_rows(lines)
@@ -345,8 +354,11 @@ def analyze_page(page, running_heads, chapters=True):
         body[0]["para_start"] = True
 
     if len(body) >= 4:
-        left = robust_fit([r["ly"] for r in body], [r["lx"] for r in body])
-        right = robust_fit([r["ry"] for r in body], [r["rx"] for r in body])
+        if 5 <= sum(len(r["text"]) > 25 for r in body) < 10:
+            left, right = straight_margins([r for r in body if len(r["text"]) > 25])
+        else:
+            left = robust_fit([r["ly"] for r in body], [r["lx"] for r in body])
+            right = robust_fit([r["ry"] for r in body], [r["rx"] for r in body])
         spacing = statistics.median(b["ly"] - a["ly"] for a, b in zip(body, body[1:]))
         indent = max(0.006, 0.4 * spacing)     # a paragraph indent is roughly 1 em
         for r in body:
@@ -386,8 +398,12 @@ def analyze_page(page, running_heads, chapters=True):
     return page
 
 
+# Sections named by a word alone. Unlike "Chapter 3", the same word is often the running head
+# on the section's other pages, so it can still count as one.
+NAMED_SECTIONS = "prologue|epilogue|interlude|afterword|foreword|preface|introduction|acknowledge?ments"
+NAMED_SECTION_RE = re.compile(rf"(?i)^\W*({NAMED_SECTIONS})\W*$")
 # "CHPTER"/"CHARTER": OCR misreads of a spaced-out small-caps CHAPTER.
-CHAPTER_RE = re.compile(r"(?i)^\s*(c[hn]a?[pr]?t[eo]r|prologue|epilogue|interlude|part)\b")
+CHAPTER_RE = re.compile(rf"(?i)^\s*(c[hn]a?[pr]?t[eo]r|part|{NAMED_SECTIONS})\b")
 # Some books number chapters with a Roman numeral alone ("IV"). OCR sometimes reads
 # the I's as dotted capitals ("İİİ").
 ROMAN_RE = re.compile(r"(?i)^[^A-Za-z0-9]*([IVXLC]{1,7})[^A-Za-z0-9]*$")   # specks around it: "_ IV", "• IV"
@@ -532,7 +548,8 @@ def detect_running_heads(pages):
         for r in p["lines"]:
             t = r["text"].strip()
             n = norm(t)
-            if (any(r is h for h in heading) or not in_header(r, p) or re.fullmatch(r"\d{1,4}", t) or not n or is_chapter_label(t)
+            if (any(r is h for h in heading) or not in_header(r, p) or re.fullmatch(r"\d{1,4}", t) or not n
+                    or (is_chapter_label(t) and not NAMED_SECTION_RE.match(t))
                     or r["rx"] - r["lx"] > 0.75 * text_width(p)):
                 continue   # a full-width line at the top is body text, however often it repeats
             g = next((g for g in groups if any(difflib.SequenceMatcher(None, n, v).ratio() > 0.75

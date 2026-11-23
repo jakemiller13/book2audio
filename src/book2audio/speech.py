@@ -28,11 +28,11 @@ CHAPTER_PAUSE = 1.5      # before and after a chapter title
 SCENE_PAUSE = 1.5        # at a scene break (blank gap mid-chapter)
 AUDIO_CACHE = Path.home() / "Library" / "Caches" / "book2audio" / "audio"
 
-SUGGESTED_VOICES = ["am_michael", "am_fenrir", "am_onyx", "bm_george", "bm_fable", "bm_lewis",
-                    "af_heart", "bf_emma"]
+# One good narrator to start with for each accent and gender (--voice-samples plays them all).
+RECOMMENDED_VOICES = ["am_michael", "af_heart", "bm_lewis", "bf_emma"]
 ACCENTS = {"a": "American", "b": "British"}
 GENDERS = {"m": "male", "f": "female"}
-SAMPLE_TEXT = ("Hello. This is the {name} voice. If you choose me, I'll read your book aloud, "
+SAMPLE_TEXT = ("Hello. This is {name} voice. If you choose me, I'll read your book aloud, "
                "pausing between paragraphs and at every new chapter.")
 
 
@@ -108,13 +108,13 @@ def describe_voice(v):
 
 def list_voices():
     voices = all_voices()
-    print("Suggested narrators (hear them with --voice-samples):")
-    for v in SUGGESTED_VOICES:
+    print("Recommended to start with:")
+    for v in RECOMMENDED_VOICES:
         print(f"  {v:<14} {describe_voice(v)}")
-    print("\nAll voices:")
+    print("\nAll voices (hear every one with --voice-samples):")
     for v in voices:
         print(f"  {v:<14} {describe_voice(v)}")
-    print("\nUse one with --voice, e.g.  --voice bm_george  (or just  --voice george)."
+    print("\nUse one with --voice, e.g.  --voice bf_emma  (or just  --voice emma)."
           "\nMix voices with weights, e.g.  --voice lewis:70+onyx:30 --accent american"
           f"\nThe default is {DEFAULT_VOICE}, {DEFAULT_ACCENT} accent, speed {DEFAULT_SPEED}.")
 
@@ -332,14 +332,17 @@ def prune_audio_cache(days=30):
 
 
 def write_voice_samples():
-    """A short clip per suggested narrator in voice_samples/, to pick a --voice by ear."""
+    """A short clip of the default narrator and of every voice in voice_samples/, to pick a
+    --voice by ear. Each is read the way --voice would read it (accent, default speed)."""
     out = ROOT / "voice_samples"
     out.mkdir(exist_ok=True)
-    for v in SUGGESTED_VOICES:
-        engine = KokoroVoice(v)
-        f = out / f"{v}.wav"
-        sf.write(str(f), engine.speak(SAMPLE_TEXT.format(name=v.split("_")[1].capitalize())), engine.rate)
-        print(f"  {f}  ({describe_voice(v)})", file=sys.stderr)
+    clips = [("default", None, "the default", f"default: {DEFAULT_VOICE}")]
+    clips += [(v, v, f"the {v.split('_')[1].capitalize()}", describe_voice(v)) for v in all_voices()]
+    for name, spec, said, about in clips:
+        engine = KokoroVoice(resolve_voice(spec))
+        f = out / f"{name}.wav"
+        sf.write(str(f), engine.speak(SAMPLE_TEXT.format(name=said)), engine.rate)
+        print(f"  {f}  ({about})", file=sys.stderr)
     subprocess.run(["open", str(out)])
 
 
