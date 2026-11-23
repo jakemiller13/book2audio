@@ -109,8 +109,8 @@ If pages are missing between or within recordings, the run prints which page num
 | `--voice NAME` | Narrator: one voice, e.g. `am_michael` or just `michael`, or a mix such as `lewis:70+onyx:30` (see [Voices](#voices)). Default `lewis:70+onyx:30` |
 | `--accent american\|british` | Pronunciation rules. Default: American with the default voice, otherwise the accent of the main `--voice` |
 | `--speed N` | Speaking speed, e.g. `1` for normal, `0.9` for slower. Default `0.9` |
-| `--list-voices` | Lists every voice |
-| `--voice-samples` | Writes a short clip of each suggested voice to `voice_samples/` and opens the folder |
+| `--list-voices` | Lists every voice, after four recommended ones (one of each accent and gender) |
+| `--voice-samples` | Writes a short clip of every voice, and of the default, to `voice_samples/` and opens the folder (about a minute) |
 | `--pronunciations FILE` | How to say particular words (see [Pronunciations](#pronunciations)). Give it more than once to combine lists; a later list wins |
 | `--proofread` | Has Claude fix text recognition errors before the text is read aloud (see [Proofreading and summaries](#proofreading-and-summaries)) |
 | `--summary` | Writes a one-paragraph summary of each chapter (`.summary.md`) and reads each one aloud as a separate "Chapter 20 – Summary" chapter right after the chapter it covers |
@@ -177,7 +177,7 @@ Timing on an M3 Pro with 18 GB of memory: the usual voice reads an hour of audio
 
 ### Voices
 
-The default narrator is a blend of two voices, `lewis:70+onyx:30`, with an American accent at speed 0.9. It's only a starting point: the voice options are among the most flexible in book2audio, so it's worth trying a few voices, mixes, accents and speeds to find what suits each book. Run `./book2audio --voice-samples` to hear the suggested narrators, or `./book2audio --list-voices` for all of them. Kokoro voice names start with a code: `am_` American male, `af_` American female, `bm_`/`bf_` British male/female. Good narrators to try: `am_michael`, `am_fenrir`, `am_onyx`, `bm_george`, `bm_fable`, `bm_lewis`, `af_heart`, `bf_emma`. You can give just the name part, e.g. `--voice fenrir`.
+The default narrator is a blend of two voices, `lewis:70+onyx:30`, with an American accent at speed 0.9. It's only a starting point: the voice options are among the most flexible in book2audio, so it's worth trying a few voices, mixes, accents and speeds to find what suits each book. Run `./book2audio --voice-samples` to hear all 28 voices and the default (each clip is read the way `--voice` would read it, at speed 0.9), or `./book2audio --list-voices` to list them. Kokoro voice names start with a code: `am_` American male, `af_` American female, `bm_`/`bf_` British male/female. Good ones to start with, one of each: `am_michael` (American male), `af_heart` (American female), `bm_lewis` (British male), `bf_emma` (British female). You can give just the name part, e.g. `--voice heart`.
 
 You can also mix voices. `--voice lewis:70+onyx:30` blends the two voices' sound, 70% to 30% (the numbers are relative, so `7+3` means the same; leave them out for equal parts). The voice and the accent are separate: the accent comes from the pronunciation rules, which follow the main voice unless you pass `--accent`. So `--voice lewis --accent american` keeps that voice but with American pronunciation.
 
