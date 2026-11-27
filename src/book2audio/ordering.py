@@ -1,5 +1,6 @@
 """Put pages in book order: match the many views of each page (video frames, repeat
 photos), keep the clearest one, and settle each page's number by vote."""
+import difflib
 import re
 import sys
 from collections import Counter
@@ -33,6 +34,7 @@ def order_pages(pages):
     for c in clusters:
         for m in c["members"]:
             m["cluster"] = c
+    clusters = drop_turning_leaves(clusters, pages)
 
     # Misread page numbers ("867" for 267) would scramble the order. A real number has
     # support: some *other* page nearby in the numbering. (Not "close to the median":
@@ -205,6 +207,60 @@ def drop_garbled_copies(clusters):
         if not garbled and not blurred_frame(c, clusters):
             keep.append(c)
     return keep
+
+
+def drop_turning_leaves(clusters, pages):
+    """A page seen in a single video frame, beside a page that is seen in many frames with a
+    different facing page, isn't a page of its own: it's the leaf being turned, caught in
+    motion and read as garble. Drop it."""
+    frames = {}
+    for p in pages:
+        if p.get("cluster") and p.get("time") is not None:
+            frames.setdefault((p["source"], p["time"]), []).append(p)
+    mates = spread_partners(frames)
+    leaves = set()
+    for c in clusters:
+        me = c["members"][0]
+        if len(c["members"]) != 1 or me.get("time") is None:
+            continue
+        for other in frames.get((me["source"], me["time"]), []):
+            mate = mates.get(id(other["cluster"]))
+            if other["side"] != me["side"] and mate is not None and mate[0] is not c:
+                leaves.add(id(c))
+    for c in clusters:
+        if id(c) in leaves:
+            c["members"][0]["cluster"] = None
+    return [c for c in clusters if id(c) not in leaves]
+
+
+def unclear_lines(view, most=4):
+    """Lines of a page that its video frames read differently (blurred or covered in most of
+    them), each with the other frames' readings: [(line, [other readings])]. Proofreading
+    can often piece the printed words together from several bad readings."""
+    def norm(t):
+        return " ".join(t.split()).lower()
+    others = sorted((m for m in view["cluster"]["members"]
+                     if m is not view and m["quality"] >= 0.5 * view["quality"]),
+                    key=lambda m: -m["quality"])[:8]
+    out = []
+    for i, row in enumerate(view["body"]):
+        line = row["text"].strip()
+        if len(line) < 20:
+            continue
+        readings = []
+        for m in others:
+            near = [r["text"].strip() for r in m["body"][max(0, i - 3):i + 4]]
+            scored = [(difflib.SequenceMatcher(None, norm(line), norm(t)).ratio(), t) for t in near
+                      if difflib.SequenceMatcher(None, norm(line), norm(t)).real_quick_ratio() >= 0.5]
+            if scored:
+                ratio, text = max(scored)
+                if ratio >= 0.5:
+                    readings.append((ratio, text))
+        if len(readings) >= 2 and sum(r for r, _ in readings) / len(readings) < 0.85:
+            alts = Counter(t for _, t in readings if norm(t) != norm(line))
+            if alts:
+                out.append((line, [t for t, _ in alts.most_common(most)]))
+    return out
 
 
 def blurred_frame(c, clusters):
