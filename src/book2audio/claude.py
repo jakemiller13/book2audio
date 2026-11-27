@@ -133,7 +133,17 @@ def parts_of(chapter):
         words += len(para.split())
     if cur:
         parts.append("\n\n".join(cur))
+    # A last scrap of a few lines goes with the part before it: alone it gives Claude no
+    # context, and fixing one dash ("- 1 said -" -> "—I said—") moves its length by 10%.
+    if len(parts) > 1 and words < PART_WORDS // 10:
+        parts[-2:] = ["\n\n".join(parts[-2:])]
     return parts
+
+
+def word_count(text):
+    """Words, not punctuation: OCR splits dashes and stray marks into separate pieces that
+    proofreading rightly removes."""
+    return len(re.findall(r"[^\W_]+", text))
 
 
 def proofread(md_text):
@@ -149,7 +159,7 @@ def proofread(md_text):
     out, kept = [], []
     for (heading, part), fixed in zip(where, run_all(jobs, "proofreading")):
         fixed = keep_heading(part, fixed)
-        ratio = len(fixed.split()) / max(1, len(part.split()))
+        ratio = word_count(fixed) / max(1, word_count(part))
         if not 0.9 <= ratio <= 1.1:
             kept.append(f"{heading} (proofread text was {ratio:.0%} of the original)")
             fixed = part
