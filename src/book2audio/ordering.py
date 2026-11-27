@@ -1,5 +1,6 @@
 """Put pages in book order: match the many views of each page (video frames, repeat
 photos), keep the clearest one, and settle each page's number by vote."""
+import difflib
 import re
 import sys
 from collections import Counter
@@ -33,6 +34,7 @@ def order_pages(pages):
     for c in clusters:
         for m in c["members"]:
             m["cluster"] = c
+    clusters = drop_turning_leaves(clusters, pages)
 
     # Misread page numbers ("867" for 267) would scramble the order. A real number has
     # support: some *other* page nearby in the numbering. (Not "close to the median":
@@ -93,17 +95,37 @@ def order_pages(pages):
                 last_spread[c["members"][0]["source"]] = c["number"] + (1 if side == 0 else 0)
         # Before the first numbered page, count down from the lowest number that follows (a
         # spread's right page is often read first: page 1 comes before 2, not before 3).
+        # Count in spread order, left page before right: the order pages first appear on
+        # screen isn't enough, as the right page can flash past alone mid-turn before the
+        # spread settles.
         first_known = next(i for i, c in enumerate(clusters) if c["number"] is not None)
         lowest = min(c["number"] for c in clusters[first_known:first_known + 4] if c["number"] is not None)
-        for i in range(first_known - 1, -1, -1):
+        def spread_order(c):
+            mate, side = mates.get(id(c), (None, None))
+            if mate is None or mate["first"] >= clusters[first_known]["first"]:
+                return c["first"], 0
+            return min(c["first"], mate["first"]), side
+        before = sorted(clusters[:first_known], key=spread_order)
+        for c in reversed(before):
             lowest -= 1
-            clusters[i]["number"] = lowest
+            c["number"] = lowest
+        clusters[:first_known] = before
+        # Two pages can end up with one number. Usually one is a frame or two glimpsed in
+        # motion (e.g. while paging back), numbered from a misread facing page: keep the
+        # page whose own frames show that number most often, then the one seen in more
+        # frames, then the clearer one. Pages each seen in several frames are both real
+        # (two views of the same page would have been grouped by their text), so the
+        # numbering is what's wrong: keep both, in the order they were first seen.
+        def claim(c):
+            reads = sum(1 for m in c["members"] if m["number"] == c["number"])
+            return reads, len(c["members"]), best_view(c)["quality"]
         by_number = {}
         for c in clusters:
-            other = by_number.get(c["number"])
-            if other is None or best_view(c)["quality"] > best_view(other)["quality"]:
-                by_number[c["number"]] = c
-        clusters = [by_number[n] for n in sorted(by_number)]
+            by_number.setdefault(c["number"], []).append(c)
+        for n, same in by_number.items():
+            seen = [c for c in same if len(c["members"]) >= 3]
+            by_number[n] = sorted(seen, key=lambda c: c["first"]) if len(seen) > 1 else [max(same, key=claim)]
+        clusters = [c for n in sorted(by_number) for c in by_number[n]]
         # The blank page facing a chapter opening isn't missing.
         blank = {c["number"] + (-1 if best_view(c)["side"] == 1 else 1)
                  for c in clusters if best_view(c).get("blank_facing")}
@@ -182,9 +204,84 @@ def drop_garbled_copies(clusters):
             shared = len(mine & set().union(*(bigrams(m) for m in d["members"]))) / len(mine)
             return shared > 0.5 or (shared > 0.25 and best_view(d)["quality"] >= 2 * q)
         garbled = len(c["members"]) <= 2 and len(mine) >= 10 and any(copy_of(d) for d in clusters)
-        if not garbled:
+        if not garbled and not blurred_frame(c, clusters):
             keep.append(c)
     return keep
+
+
+def drop_turning_leaves(clusters, pages):
+    """A page seen in a single video frame, beside a page that is seen in many frames with a
+    different facing page, isn't a page of its own: it's the leaf being turned, caught in
+    motion and read as garble. Drop it."""
+    frames = {}
+    for p in pages:
+        if p.get("cluster") and p.get("time") is not None:
+            frames.setdefault((p["source"], p["time"]), []).append(p)
+    mates = spread_partners(frames)
+    leaves = set()
+    for c in clusters:
+        me = c["members"][0]
+        if len(c["members"]) != 1 or me.get("time") is None:
+            continue
+        for other in frames.get((me["source"], me["time"]), []):
+            mate = mates.get(id(other["cluster"]))
+            if other["side"] != me["side"] and mate is not None and mate[0] is not c:
+                leaves.add(id(c))
+    for c in clusters:
+        if id(c) in leaves:
+            c["members"][0]["cluster"] = None
+    return [c for c in clusters if id(c) not in leaves]
+
+
+def unclear_lines(view, most=4):
+    """Lines of a page that its video frames read differently (blurred or covered in most of
+    them), each with the other frames' readings: [(line, [other readings])]. Proofreading
+    can often piece the printed words together from several bad readings."""
+    def norm(t):
+        return " ".join(t.split()).lower()
+    others = sorted((m for m in view["cluster"]["members"]
+                     if m is not view and m["quality"] >= 0.5 * view["quality"]),
+                    key=lambda m: -m["quality"])[:8]
+    out = []
+    for i, row in enumerate(view["body"]):
+        line = row["text"].strip()
+        if len(line) < 20:
+            continue
+        readings = []
+        for m in others:
+            near = [r["text"].strip() for r in m["body"][max(0, i - 3):i + 4]]
+            scored = [(difflib.SequenceMatcher(None, norm(line), norm(t)).ratio(), t) for t in near
+                      if difflib.SequenceMatcher(None, norm(line), norm(t)).real_quick_ratio() >= 0.5]
+            if scored:
+                ratio, text = max(scored)
+                if ratio >= 0.5:
+                    readings.append((ratio, text))
+        if len(readings) >= 2 and sum(r for r, _ in readings) / len(readings) < 0.85:
+            alts = Counter(t for _, t in readings if norm(t) != norm(line))
+            if alts:
+                out.append((line, [t for t, _ in alts.most_common(most)]))
+    return out
+
+
+def blurred_frame(c, clusters):
+    """A single video frame of a page in motion, read too badly to match its clear views
+    by text: it's a copy if the page it shares most words with is shown, clearly and in
+    several frames, on the same side of the screen within a second of it."""
+    if len(c["members"]) != 1:
+        return False
+    me = c["members"][0]
+    mine = bigrams(me)
+    if me.get("time") is None or len(mine) < 10:
+        return False
+    def shared(d):
+        return len(mine & set().union(*(bigrams(m) for m in d["members"]))) / len(mine)
+    others = [d for d in clusters if d is not c and len(d["members"]) >= 3]
+    if not others:
+        return False
+    d = max(others, key=shared)
+    return shared(d) >= 0.2 and best_view(d)["quality"] > me["quality"] and any(
+        m["source"] == me["source"] and m["side"] == me["side"] and abs(m["time"] - me["time"]) <= 1
+        for m in d["members"])
 
 
 def best_view(cluster):

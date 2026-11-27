@@ -133,23 +133,53 @@ def parts_of(chapter):
         words += len(para.split())
     if cur:
         parts.append("\n\n".join(cur))
+    # A last scrap of a few lines goes with the part before it: alone it gives Claude no
+    # context, and fixing one dash ("- 1 said -" -> "—I said—") moves its length by 10%.
+    if len(parts) > 1 and words < PART_WORDS // 10:
+        parts[-2:] = ["\n\n".join(parts[-2:])]
     return parts
 
 
-def proofread(md_text):
-    """Fix OCR errors in the Markdown transcript, chapter by chapter. A part that comes back more
+def word_count(text):
+    """Words, not punctuation: OCR splits dashes and stray marks into separate pieces that
+    proofreading rightly removes."""
+    return len(re.findall(r"[^\W_]+", text))
+
+
+READINGS_NOTE = "[OTHER READINGS]"
+
+
+def with_readings(part, unclear):
+    """The part to proofread, plus a note of its lines that the video frames read differently
+    and how the other frames read them (several bad readings often add up to the printed words)."""
+    flat = " ".join(part.split())
+    lines = [(line, alts) for line, alts in unclear if " ".join(line.split()).rstrip("-") in flat]
+    if not lines:
+        return part
+    note = "\n".join(f'- "{line}"\n  other frames: ' + " | ".join(f'"{a}"' for a in alts)
+                     for line, alts in lines)
+    return (f"{part}\n\n{READINGS_NOTE}\nNot part of the text. Some lines were hard to read; the "
+            "text above has one reading of each, and other video frames of the same page read them "
+            "as shown. Use these to recover the printed words where the text above is garbled. "
+            f"Return only the corrected text, without this note.\n{note}")
+
+
+def proofread(md_text, unclear=()):
+    """Fix OCR errors in the Markdown transcript, chapter by chapter, with the other frames'
+    readings of hard-to-read lines (unclear: [(line, [readings])]). A part that comes back more
     than 10% longer or shorter is kept as it was, with a warning naming the chapter."""
     jobs, where = [], []
     for chapter in split_chapters(md_text):
         heading = chapter.splitlines()[0].lstrip("# ").strip()
         for part in parts_of(chapter):
-            jobs.append((heading, lambda part=part: ask(PROOFREAD_PROMPT, part)))
+            text = with_readings(part, unclear)
+            jobs.append((heading, lambda text=text: ask(PROOFREAD_PROMPT, text)))
             where.append((heading, part))
     print(f"  {len(jobs)} part(s) in {len(split_chapters(md_text))} chapter(s)...", file=sys.stderr)
     out, kept = [], []
     for (heading, part), fixed in zip(where, run_all(jobs, "proofreading")):
-        fixed = keep_heading(part, fixed)
-        ratio = len(fixed.split()) / max(1, len(part.split()))
+        fixed = keep_heading(part, fixed.split(READINGS_NOTE)[0])
+        ratio = word_count(fixed) / max(1, word_count(part))
         if not 0.9 <= ratio <= 1.1:
             kept.append(f"{heading} (proofread text was {ratio:.0%} of the original)")
             fixed = part
