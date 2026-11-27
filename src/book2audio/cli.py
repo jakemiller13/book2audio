@@ -147,9 +147,9 @@ def main():
                  "Run  ./setup.sh --emotion  (about 4.5 GB), then the same command again.")
 
     if args.transcript:
-        blocks, out, tags = read_transcript(args)
+        blocks, out, tags, unclear = read_transcript(args)
     else:
-        blocks, out, tags = read_pages(args)
+        blocks, out, tags, unclear = read_pages(args)
     blocks = from_chapter(blocks, args.from_chapter)
     out.parent.mkdir(parents=True, exist_ok=True)
 
@@ -159,7 +159,7 @@ def main():
         if not args.transcript:
             out.with_suffix(".ocr.md").write_text(md_text)
         print("Proofreading with Claude...", file=sys.stderr)
-        md_text = claude.proofread(md_text)
+        md_text = claude.proofread(md_text, unclear)
         blocks = text.markdown_to_blocks(md_text)
     if not (args.transcript and md.resolve() == Path(args.inputs[0]).expanduser().resolve()
             and md.read_text() == md_text):
@@ -187,7 +187,8 @@ def main():
 
 
 def read_pages(args):
-    """Text recognition on the photos and videos: (blocks, audiobook path, tags)."""
+    """Text recognition on the photos and videos: (blocks, audiobook path, tags, unclear lines
+    with their other readings, for proofreading)."""
     capture.ensure_ocr_binary()
     paths = capture.collect_inputs(args.inputs)
     print(f"OCR on {len(paths)} file(s)...", file=sys.stderr)
@@ -210,6 +211,9 @@ def read_pages(args):
     if by_pages:
         cuts = text.cut_pages(pages, by_pages)
         print(f"{len(cuts)} chapter(s) of about {by_pages} pages: {', '.join(cuts)}", file=sys.stderr)
+    # Lines the frames read differently go to proofreading with their other readings.
+    unclear = [(text.clean_line(line), [text.clean_line(a) for a in alts])
+               for p in pages for line, alts in ordering.unclear_lines(p)] if args.proofread else []
     blocks = text.build_text(pages)
     if not by_pages and len(pages) >= 30 and not any(kind == "chapter" for kind, _ in blocks):
         print("No chapter headings were found, so this is all one chapter. If the book has no "
@@ -225,18 +229,19 @@ def read_pages(args):
         print(f"Book: {title or '?'} by {author or '?'}", file=sys.stderr)
     tags = {"title": f"{title} - {contents}" if title else out.stem, "album": title or out.stem,
             "artist": author, "album_artist": author}
-    return blocks, out, tags
+    return blocks, out, tags, unclear
 
 
 def read_transcript(args):
     """A transcript (.md) from an earlier run, e.g. after fixing a line in it: (blocks,
-    audiobook path, tags). 'X.ocr.md' (the unproofread text) makes 'X.md' and 'X.m4b'."""
+    audiobook path, tags, no unclear lines). 'X.ocr.md' (the unproofread text) makes 'X.md'
+    and 'X.m4b'."""
     md = Path(args.inputs[0]).expanduser()
     stem = re.sub(r"\.ocr$", "", md.stem)
     out = Path(args.output).expanduser() if args.output else md.with_name(stem + ".m4b")
     title = args.title or (stem.split(" - ")[0] if " - " in stem else stem)
     tags = {"title": stem, "album": title, "artist": args.author, "album_artist": args.author}
-    return text.markdown_to_blocks(md.read_text()), out, tags
+    return text.markdown_to_blocks(md.read_text()), out, tags, []
 
 
 def from_chapter(blocks, n):
