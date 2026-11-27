@@ -93,17 +93,37 @@ def order_pages(pages):
                 last_spread[c["members"][0]["source"]] = c["number"] + (1 if side == 0 else 0)
         # Before the first numbered page, count down from the lowest number that follows (a
         # spread's right page is often read first: page 1 comes before 2, not before 3).
+        # Count in spread order, left page before right: the order pages first appear on
+        # screen isn't enough, as the right page can flash past alone mid-turn before the
+        # spread settles.
         first_known = next(i for i, c in enumerate(clusters) if c["number"] is not None)
         lowest = min(c["number"] for c in clusters[first_known:first_known + 4] if c["number"] is not None)
-        for i in range(first_known - 1, -1, -1):
+        def spread_order(c):
+            mate, side = mates.get(id(c), (None, None))
+            if mate is None or mate["first"] >= clusters[first_known]["first"]:
+                return c["first"], 0
+            return min(c["first"], mate["first"]), side
+        before = sorted(clusters[:first_known], key=spread_order)
+        for c in reversed(before):
             lowest -= 1
-            clusters[i]["number"] = lowest
+            c["number"] = lowest
+        clusters[:first_known] = before
+        # Two pages can end up with one number. Usually one is a frame or two glimpsed in
+        # motion (e.g. while paging back), numbered from a misread facing page: keep the
+        # page whose own frames show that number most often, then the one seen in more
+        # frames, then the clearer one. Pages each seen in several frames are both real
+        # (two views of the same page would have been grouped by their text), so the
+        # numbering is what's wrong: keep both, in the order they were first seen.
+        def claim(c):
+            reads = sum(1 for m in c["members"] if m["number"] == c["number"])
+            return reads, len(c["members"]), best_view(c)["quality"]
         by_number = {}
         for c in clusters:
-            other = by_number.get(c["number"])
-            if other is None or best_view(c)["quality"] > best_view(other)["quality"]:
-                by_number[c["number"]] = c
-        clusters = [by_number[n] for n in sorted(by_number)]
+            by_number.setdefault(c["number"], []).append(c)
+        for n, same in by_number.items():
+            seen = [c for c in same if len(c["members"]) >= 3]
+            by_number[n] = sorted(seen, key=lambda c: c["first"]) if len(seen) > 1 else [max(same, key=claim)]
+        clusters = [c for n in sorted(by_number) for c in by_number[n]]
         # The blank page facing a chapter opening isn't missing.
         blank = {c["number"] + (-1 if best_view(c)["side"] == 1 else 1)
                  for c in clusters if best_view(c).get("blank_facing")}
@@ -182,9 +202,30 @@ def drop_garbled_copies(clusters):
             shared = len(mine & set().union(*(bigrams(m) for m in d["members"]))) / len(mine)
             return shared > 0.5 or (shared > 0.25 and best_view(d)["quality"] >= 2 * q)
         garbled = len(c["members"]) <= 2 and len(mine) >= 10 and any(copy_of(d) for d in clusters)
-        if not garbled:
+        if not garbled and not blurred_frame(c, clusters):
             keep.append(c)
     return keep
+
+
+def blurred_frame(c, clusters):
+    """A single video frame of a page in motion, read too badly to match its clear views
+    by text: it's a copy if the page it shares most words with is shown, clearly and in
+    several frames, on the same side of the screen within a second of it."""
+    if len(c["members"]) != 1:
+        return False
+    me = c["members"][0]
+    mine = bigrams(me)
+    if me.get("time") is None or len(mine) < 10:
+        return False
+    def shared(d):
+        return len(mine & set().union(*(bigrams(m) for m in d["members"]))) / len(mine)
+    others = [d for d in clusters if d is not c and len(d["members"]) >= 3]
+    if not others:
+        return False
+    d = max(others, key=shared)
+    return shared(d) >= 0.2 and best_view(d)["quality"] > me["quality"] and any(
+        m["source"] == me["source"] and m["side"] == me["side"] and abs(m["time"] - me["time"]) <= 1
+        for m in d["members"])
 
 
 def best_view(cluster):
